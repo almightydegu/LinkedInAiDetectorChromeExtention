@@ -11,11 +11,10 @@
   background: #fff; /* solid background so the thread line doesn't show through */
 }
 
-/* Comment / reply badges: remove horizontal padding so the pill aligns
-   with the comment text rather than the outer post edge */
+/* Comment badges live inside the comment content area (after the action bar),
+   so they naturally align with the comment text. Just tighten vertical margin. */
 .ai-detector-badge--comment {
-  padding-left: 0;
-  padding-right: 0;
+  margin: 2px 0;
 }
 
 .aid-inner {
