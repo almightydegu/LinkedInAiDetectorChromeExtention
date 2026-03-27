@@ -6,6 +6,19 @@ const BADGE_CLASS            = 'ai-detector-badge';
 const MIN_TEXT_LENGTH        = 80;
 const MIN_COMMENT_LENGTH     = 100;
 
+// ── Analysis cache ────────────────────────────────────────────────────────────
+// LinkedIn re-renders its post/comment containers, stripping any injected DOM
+// attributes. The cache lets us re-inject badges instantly from a stored result
+// without making a repeat API call, and prevents duplicate in-flight requests.
+
+const analysisCache = new Map(); // textKey → cached result object
+const pendingKeys   = new Set(); // textKeys currently awaiting an API response
+
+function textKey(text) {
+  // First 100 chars + total length is a fast, collision-resistant key
+  return `${text.length}:${text.slice(0, 100)}`;
+}
+
 // Selector for the per-post options button — the only stable DOM anchor
 // LinkedIn exposes after switching to hashed class names.
 const MENU_BTN_SELECTOR         = '[aria-label*="control menu for post"], [aria-label*="menu for post"]';
@@ -153,12 +166,27 @@ function getFeedPosts() {
 }
 
 // ── Comment detection ─────────────────────────────────────────────────────────
-// LinkedIn gives each comment container a data-testid containing "commentList".
-// The "View more options" button inside each comment is the stable anchor,
-// mirroring the control-menu button used for posts.
+// Each individual comment container has a data-testid containing "commentList".
+// We locate them by finding every comment options button and walking up to the
+// nearest commentList ancestor — this correctly handles "Load more comments"
+// because new elements are discovered fresh each time the observer fires,
+// regardless of whether a parent container has already been marked done.
 
 function getComments() {
-  return Array.from(document.querySelectorAll(`[data-testid*="commentList"]`));
+  const seen    = new Set();
+  const results = [];
+  document.querySelectorAll(COMMENT_MENU_BTN_SELECTOR).forEach(btn => {
+    let el = btn;
+    while (el.parentElement) {
+      el = el.parentElement;
+      const testid = el.getAttribute('data-testid');
+      if (testid && testid.includes('commentList')) {
+        if (!seen.has(el)) { seen.add(el); results.push(el); }
+        break;
+      }
+    }
+  });
+  return results;
 }
 
 // ── Post text extraction ──────────────────────────────────────────────────────
@@ -197,55 +225,85 @@ function insertionAnchor(post) {
 }
 
 function commentInsertionAnchor(comment) {
-  return comment.firstElementChild ?? comment;
+  // Preferred: locate the Like | Reply action bar via the reply button and
+  // return it so the badge is inserted right after it — visually adjacent to
+  // the reaction/reply controls, not above the comment text.
+  const replyBtn = comment.querySelector('[aria-label*="Reply to"], [aria-label*="reply to"]');
+  if (replyBtn) {
+    let el = replyBtn;
+    while (el.parentElement && el.parentElement !== comment) el = el.parentElement;
+    return el; // direct child = action bar row; badge goes after it
+  }
+
+  // Fallback: walk up from options button to a direct child of the container
+  const btn = comment.querySelector(COMMENT_MENU_BTN_SELECTOR);
+  if (!btn) return comment.firstElementChild ?? comment;
+  let el = btn;
+  while (el.parentElement && el.parentElement !== comment) el = el.parentElement;
+  return el;
 }
 
 // ── Core processing ───────────────────────────────────────────────────────────
+// processItem handles both posts and comments. The analysisCache means:
+//   - Re-rendered elements get their badge re-injected instantly from cache
+//   - Two elements with identical text don't trigger duplicate API calls
 
-async function processPost(post) {
-  if (post.hasAttribute(PROCESSED_ATTR)) return;
-  post.setAttribute(PROCESSED_ATTR, 'true');
+async function processItem(element, processedAttr, anchorFn, minLength) {
+  if (element.hasAttribute(processedAttr)) return;
+  element.setAttribute(processedAttr, 'true');
 
-  const text = extractText(post);
-  if (!text) return;
+  const text = extractText(element);
+  if (!text || text.length < minLength) return;
 
-  const anchor  = insertionAnchor(post);
+  const key    = textKey(text);
+  const anchor = anchorFn(element);
+
+  // Re-render hit: inject from cache immediately, no API call needed
+  if (analysisCache.has(key)) {
+    const cached = analysisCache.get(key);
+    anchor.insertAdjacentElement('afterend', badgeFromCached(cached));
+    return;
+  }
+
+  // Duplicate in-flight: another element with the same text is already being
+  // analysed — skip rather than fire a second identical API request
+  if (pendingKeys.has(key)) return;
+  pendingKeys.add(key);
+
   const loading = makeBadge('loading');
   anchor.insertAdjacentElement('afterend', loading);
 
   try {
     const result = await sendToBackground(text);
+    analysisCache.set(key, { ok: true, score: result.score, reason: result.reason });
     loading.replaceWith(makeBadge('score', result));
   } catch (err) {
+    analysisCache.set(key, { ok: false, message: err.message });
     loading.replaceWith(
       err.message === 'NO_API_KEY'
         ? makeBadge('no-key')
         : makeBadge('error', { message: err.message })
     );
+  } finally {
+    pendingKeys.delete(key);
   }
 }
 
-async function processComment(comment) {
-  if (comment.hasAttribute(COMMENT_PROCESSED_ATTR)) return;
-  comment.setAttribute(COMMENT_PROCESSED_ATTR, 'true');
-
-  const text = extractText(comment);
-  if (!text || text.length < MIN_COMMENT_LENGTH) return;
-
-  const anchor  = commentInsertionAnchor(comment);
-  const loading = makeBadge('loading');
-  anchor.insertAdjacentElement('afterend', loading);
-
-  try {
-    const result = await sendToBackground(text);
-    loading.replaceWith(makeBadge('score', result));
-  } catch (err) {
-    loading.replaceWith(
-      err.message === 'NO_API_KEY'
-        ? makeBadge('no-key')
-        : makeBadge('error', { message: err.message })
-    );
+function badgeFromCached(cached) {
+  if (!cached.ok) {
+    return cached.message === 'NO_API_KEY'
+      ? makeBadge('no-key')
+      : makeBadge('error', { message: cached.message });
   }
+  return makeBadge('score', { score: cached.score, reason: cached.reason });
+}
+
+function processPost(post) {
+  return processItem(post, PROCESSED_ATTR, insertionAnchor, MIN_TEXT_LENGTH);
+}
+
+function processComment(comment) {
+  return processItem(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, MIN_COMMENT_LENGTH);
 }
 
 function sendToBackground(text) {
@@ -292,7 +350,7 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.7 loaded');
+  console.log('[AI Detector] v1.0.8 loaded');
   chrome.storage.sync.get(['colorMode', 'showPercentage', 'analyzeComments'], (result) => {
     if (result.colorMode !== undefined)       settings.colorMode       = result.colorMode;
     if (result.showPercentage !== undefined)  settings.showPercentage  = result.showPercentage;
