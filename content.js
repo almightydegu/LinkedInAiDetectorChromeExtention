@@ -88,7 +88,6 @@ function makeBadge(state, data = {}) {
       break;
 
     case 'short':
-      // Silent — don't clutter UI for very short posts
       return null;
 
     case 'error':
@@ -102,42 +101,57 @@ function makeBadge(state, data = {}) {
   return wrap;
 }
 
+// ── Post detection ────────────────────────────────────────────────────────────
+// LinkedIn now uses hashed CSS class names that change with every deploy.
+// The only stable hooks are data-testid="mainFeed" (the feed wrapper) and
+// the aria-label on the per-post control-menu button.
+
+function getFeedPosts() {
+  const feed = document.querySelector('[data-testid="mainFeed"]');
+  if (!feed) return [];
+  return Array.from(feed.children).filter(child =>
+    child.querySelector('[aria-label*="control menu for post"]') ||
+    child.querySelector('[aria-label*="menu for post"]')
+  );
+}
+
 // ── Post text extraction ──────────────────────────────────────────────────────
+// Class names are hashed, so we find the element with the most direct text
+// content — that's reliably the post body.
 
 function extractText(post) {
-  const candidates = [
-    '.feed-shared-text .break-words',
-    '.feed-shared-text',
-    '.update-components-text .break-words',
-    '.update-components-text',
-    '.feed-shared-text-view',
-    '[data-test-id="main-feed-activity-card__commentary"]',
-    '.attributed-text-segment-list__content',
-  ];
-
-  for (const sel of candidates) {
-    const nodes = post.querySelectorAll(sel);
-    if (!nodes.length) continue;
-    const text = Array.from(nodes).map(n => n.textContent).join(' ').trim();
-    if (text.length > 0) return text;
-  }
-  return null;
+  let bestText = '';
+  post.querySelectorAll('span, p, div').forEach(el => {
+    // Only count text that belongs directly to this element (not children)
+    const directText = Array.from(el.childNodes)
+      .filter(n => n.nodeType === Node.TEXT_NODE)
+      .map(n => n.textContent.trim())
+      .join(' ')
+      .trim();
+    if (directText.length > bestText.length) {
+      bestText = directText;
+    }
+  });
+  return bestText.length >= 80 ? bestText : null;
 }
 
 // ── Insertion point ───────────────────────────────────────────────────────────
+// Walk up 3 levels from the control-menu button to clear the author header,
+// then insert the badge after that ancestor element.
 
-function insertionPoint(post) {
-  const slots = [
-    '.update-components-actor__meta-link',
-    '.update-components-actor',
-    '.feed-shared-actor',
-    '.feed-shared-update-v2__description-wrapper',
-  ];
-  for (const sel of slots) {
-    const el = post.querySelector(sel);
-    if (el) return el;
+function insertionAnchor(post) {
+  const btn = post.querySelector('[aria-label*="control menu for post"]') ||
+              post.querySelector('[aria-label*="menu for post"]');
+  if (btn) {
+    let el = btn;
+    for (let i = 0; i < 3; i++) {
+      if (!el.parentElement || el.parentElement === post) break;
+      el = el.parentElement;
+    }
+    return el;
   }
-  return post;
+  // Fallback: insert at the top of the post container
+  return post.firstElementChild || post;
 }
 
 // ── Core processing ───────────────────────────────────────────────────────────
@@ -147,11 +161,9 @@ async function processPost(post) {
   post.setAttribute(PROCESSED_ATTR, 'true');
 
   const text = extractText(post);
+  if (!text) return; // too short or no text found
 
-  // Skip posts with no meaningful text
-  if (!text || text.length < 80) return;
-
-  const anchor = insertionPoint(post);
+  const anchor = insertionAnchor(post);
   const loading = makeBadge('loading');
   anchor.insertAdjacentElement('afterend', loading);
 
@@ -161,31 +173,23 @@ async function processPost(post) {
         if (chrome.runtime.lastError) {
           return reject(new Error(chrome.runtime.lastError.message));
         }
-        if (!response) return reject(new Error('No response'));
+        if (!response) return reject(new Error('No response from background'));
         if (!response.success) return reject(new Error(response.error || 'Unknown error'));
         resolve(response);
       });
     });
 
-    const badge = makeBadge('score', result);
-    loading.replaceWith(badge);
+    loading.replaceWith(makeBadge('score', result));
   } catch (err) {
-    let badge;
-    if (err.message === 'NO_API_KEY') {
-      badge = makeBadge('no-key');
-    } else {
-      badge = makeBadge('error', { message: err.message });
-    }
-    loading.replaceWith(badge);
+    loading.replaceWith(
+      err.message === 'NO_API_KEY'
+        ? makeBadge('no-key')
+        : makeBadge('error', { message: err.message })
+    );
   }
 }
 
 // ── Observers ─────────────────────────────────────────────────────────────────
-
-const POST_SELECTORS = [
-  '.feed-shared-update-v2',
-  '.occludable-update',
-];
 
 const visibilityObserver = new IntersectionObserver((entries) => {
   for (const entry of entries) {
@@ -202,26 +206,15 @@ function schedulePost(el) {
   }
 }
 
-function scanForPosts(root = document) {
-  for (const sel of POST_SELECTORS) {
-    root.querySelectorAll(sel).forEach(schedulePost);
-  }
-}
-
-const domObserver = new MutationObserver((mutations) => {
-  for (const mut of mutations) {
-    for (const node of mut.addedNodes) {
-      if (node.nodeType !== Node.ELEMENT_NODE) continue;
-      for (const sel of POST_SELECTORS) {
-        if (node.matches?.(sel)) schedulePost(node);
-        node.querySelectorAll?.(sel).forEach(schedulePost);
-      }
-    }
-  }
+// Watch for new posts added to the feed as the user scrolls
+const domObserver = new MutationObserver(() => {
+  getFeedPosts().forEach(schedulePost);
 });
 
 function init() {
-  scanForPosts();
+  getFeedPosts().forEach(schedulePost);
+
+  // Observe the whole body for feed changes (LinkedIn lazy-loads posts)
   domObserver.observe(document.body, { childList: true, subtree: true });
 }
 
