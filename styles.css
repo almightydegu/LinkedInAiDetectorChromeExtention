@@ -11,10 +11,11 @@
   background: #fff; /* solid background so the thread line doesn't show through */
 }
 
-/* Comment badges are inserted inside the comment's content div, so they align
-   naturally with the comment text. Remove horizontal padding to sit flush. */
+/* Push comment badges past the profile picture to align with the comment text.
+   LinkedIn comment profile pics are ~40px + ~12px gap = 52px indent. */
 .ai-detector-badge--comment {
   padding: 0;
+  margin-left: 52px;
 }
 
 .aid-inner {
