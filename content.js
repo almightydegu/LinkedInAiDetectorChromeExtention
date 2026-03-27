@@ -230,50 +230,49 @@ function insertionAnchor(post) {
 }
 
 function commentInsertionAnchor(comment) {
-  // Find the "Reply" span in THIS comment's own action bar only.
-  // Reject any span inside a nested commentList (a reply thread within the
-  // comment) — that would walk up to the thread container and place the badge
-  // outside the comment's content area.
+  // Step 1: find the "Reply" span in THIS comment's own action bar.
+  // Skip any span inside a nested commentList (reply thread inside this comment).
   let replyEl = null;
   comment.querySelectorAll('button, span[role="button"], span').forEach(el => {
     if (replyEl || el.textContent.trim() !== 'Reply') return;
     let cur = el.parentElement;
     while (cur && cur !== comment) {
-      if (cur.getAttribute('data-testid')?.includes('commentList')) return; // in reply thread — skip
+      if (cur.getAttribute('data-testid')?.includes('commentList')) return;
       cur = cur.parentElement;
     }
     replyEl = el;
   });
 
   if (replyEl) {
-    // Walk up, but stop ONE LEVEL BEFORE reaching a direct child of `comment`.
-    // That keeps the anchor inside the content div (which holds text + action
-    // bar) rather than being the content div itself — inserting 'afterend' of
-    // an element inside the content div places the badge inside the content
-    // area, naturally aligned with the comment text.
+    // Step 2: walk UP from replyEl toward comment. Track the deepest container
+    // that holds the comment body text (> 80 chars). That's the "content div"
+    // (the right-side panel that sits after the profile picture in the flex/grid
+    // layout). Inserting the badge as the last child of this container keeps
+    // the badge inside the content area, naturally aligned with the text.
     let el = replyEl;
-    while (
-      el.parentElement &&
-      el.parentElement.parentElement &&
-      el.parentElement.parentElement !== comment
-    ) {
+    let contentDiv = null;
+    while (el.parentElement && el.parentElement !== comment) {
       el = el.parentElement;
+      if (el.textContent.trim().length > 80) contentDiv = el;
     }
-    return el;
+
+    if (contentDiv) {
+      // Return the last non-commentList child of contentDiv.
+      // 'afterend' on that child appends the badge inside contentDiv.
+      let last = contentDiv.lastElementChild;
+      while (last && last.getAttribute('data-testid')?.includes('commentList')) {
+        last = last.previousElementSibling;
+      }
+      return last ?? contentDiv;
+    }
   }
 
-  // Fallback: descend into the last non-commentList direct child (the content
-  // div) and return its last non-commentList child (the action bar row).
-  let contentDiv = null;
-  for (const child of comment.children) {
-    if (!child.getAttribute('data-testid')?.includes('commentList')) contentDiv = child;
+  // Fallback: last non-commentList direct child of comment
+  let last = comment.lastElementChild;
+  while (last && last.getAttribute('data-testid')?.includes('commentList')) {
+    last = last.previousElementSibling;
   }
-  if (!contentDiv) return comment;
-  let lastInContent = null;
-  for (const child of contentDiv.children) {
-    if (!child.getAttribute('data-testid')?.includes('commentList')) lastInContent = child;
-  }
-  return lastInContent ?? contentDiv;
+  return last ?? comment;
 }
 
 // ── Core processing ───────────────────────────────────────────────────────────
@@ -398,7 +397,7 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.13 loaded');
+  console.log('[AI Detector] v1.0.14 loaded');
   chrome.storage.sync.get(['colorMode', 'showPercentage', 'analyzeComments'], (result) => {
     if (result.colorMode !== undefined)       settings.colorMode       = result.colorMode;
     if (result.showPercentage !== undefined)  settings.showPercentage  = result.showPercentage;

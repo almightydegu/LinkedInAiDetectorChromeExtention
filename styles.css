@@ -11,10 +11,10 @@
   background: #fff; /* solid background so the thread line doesn't show through */
 }
 
-/* Comment badges live inside the comment content area (after the action bar),
-   so they naturally align with the comment text. Just tighten vertical margin. */
+/* Comment badges are inserted inside the comment's content div, so they align
+   naturally with the comment text. Remove horizontal padding to sit flush. */
 .ai-detector-badge--comment {
-  margin: 2px 0;
+  padding: 0;
 }
 
 .aid-inner {
