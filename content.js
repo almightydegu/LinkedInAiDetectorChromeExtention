@@ -208,11 +208,19 @@ function schedulePost(el) {
 
 // Watch for new posts added to the feed as the user scrolls
 const domObserver = new MutationObserver(() => {
-  getFeedPosts().forEach(schedulePost);
+  const posts = getFeedPosts();
+  if (posts.length) {
+    console.log('[AI Detector] MutationObserver found posts:', posts.length);
+  }
+  posts.forEach(schedulePost);
 });
 
 function init() {
-  getFeedPosts().forEach(schedulePost);
+  console.log('[AI Detector] content script loaded, readyState:', document.readyState);
+
+  const found = getFeedPosts();
+  console.log('[AI Detector] posts found on init:', found.length);
+  found.forEach(schedulePost);
 
   // Observe the whole body for feed changes (LinkedIn lazy-loads posts)
   domObserver.observe(document.body, { childList: true, subtree: true });
