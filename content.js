@@ -166,9 +166,11 @@ function getFeedPosts() {
 }
 
 // ── Comment detection ─────────────────────────────────────────────────────────
-// [data-testid*="commentList"] is the comment SECTION container (one per post),
-// not individual comments. We mirror getFeedPosts(): find the section, then
-// treat its direct children as individual comment items.
+// [data-testid*="commentList"] is the comment SECTION container. It can be
+// nested: top-level comments live in the post's commentList, and replies to
+// those comments live in a NESTED commentList inside each comment's DOM node.
+// We iterate ALL section containers (at every depth) so both main comments
+// and indented reply threads get badges.
 
 function getComments() {
   const sections = document.querySelectorAll('[data-testid*="commentList"]');
@@ -176,13 +178,12 @@ function getComments() {
   const results  = [];
 
   sections.forEach(section => {
-    // Skip nested commentList elements (a section inside a section)
-    if (section.parentElement?.closest('[data-testid*="commentList"]')) return;
-
     Array.from(section.children).forEach(child => {
       if (seen.has(child)) return;
-      // Filter out spacers, load-more buttons, and empty wrappers.
-      // A real comment has meaningful text content.
+      // Skip nested commentList sections themselves — they are iterated
+      // by the outer forEach, so only take non-section children here.
+      if (child.getAttribute('data-testid')?.includes('commentList')) return;
+      // A real comment has meaningful text content (spacers/buttons don't)
       if (child.textContent.trim().length > 20) {
         seen.add(child);
         results.push(child);
@@ -368,7 +369,7 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.10 loaded');
+  console.log('[AI Detector] v1.0.11 loaded');
   chrome.storage.sync.get(['colorMode', 'showPercentage', 'analyzeComments'], (result) => {
     if (result.colorMode !== undefined)       settings.colorMode       = result.colorMode;
     if (result.showPercentage !== undefined)  settings.showPercentage  = result.showPercentage;
