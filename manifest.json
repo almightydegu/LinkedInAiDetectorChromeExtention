@@ -1,11 +1,10 @@
 {
   "manifest_version": 3,
   "name": "LinkedIn AI Detector",
-  "version": "1.0.0",
+  "version": "1.0.6",
   "description": "Detects whether LinkedIn posts were written by AI or a human, scored with 5 icons.",
   "permissions": [
-    "storage",
-    "activeTab"
+    "storage"
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",
