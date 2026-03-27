@@ -1,0 +1,89 @@
+/* LinkedIn AI Detector — injected styles */
+
+.ai-detector-badge {
+  margin: 6px 0 2px 0;
+  padding: 0 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  line-height: 1;
+}
+
+.aid-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  cursor: default;
+  transition: background 0.15s;
+}
+
+.aid-inner:hover {
+  background: #f1f5f9;
+}
+
+.aid-icons {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.ai-icon {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.ai-icon-human {
+  color: #16a34a;
+}
+
+.aid-text {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #475569;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.aid-pct {
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+/* Loading state */
+.aid-loading .aid-text {
+  color: #94a3b8;
+}
+
+.aid-spinner {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+/* Warning / error states */
+.aid-warn .aid-text  { color: #b45309; }
+.aid-err  .aid-text  { color: #dc2626; }
+
+.aid-warn,
+.aid-err {
+  background: #fefce8;
+  border-color: #fde68a;
+}
+
+.aid-err {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+/* Spinner keyframes */
+@keyframes ai-rotate {
+  to { transform: rotate(360deg); }
+}
+
+.ai-spin {
+  animation: ai-rotate 0.9s linear infinite;
+  transform-origin: center;
+}
