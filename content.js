@@ -230,22 +230,35 @@ function insertionAnchor(post) {
 }
 
 function commentInsertionAnchor(comment) {
-  // Find the action bar (Like | Reply row) by locating a button/span whose
-  // visible text is "Reply". LinkedIn does NOT use aria-label="Reply to…" on
-  // the per-comment reply link — it's just visible text.
+  // Find the action bar (Like | Reply row) for THIS comment only.
+  // querySelectorAll searches all descendants, so we must reject any "Reply"
+  // span that lives inside a nested commentList (a reply thread within this
+  // comment) — otherwise we'd anchor to the reply thread container instead of
+  // the comment's own action bar.
   let replyEl = null;
   comment.querySelectorAll('button, span[role="button"], span').forEach(el => {
-    if (!replyEl && el.textContent.trim() === 'Reply') replyEl = el;
+    if (replyEl || el.textContent.trim() !== 'Reply') return;
+    // Walk up and reject if a nested commentList is encountered before comment
+    let cur = el.parentElement;
+    while (cur && cur !== comment) {
+      if (cur.getAttribute('data-testid')?.includes('commentList')) return; // inside reply thread — skip
+      cur = cur.parentElement;
+    }
+    replyEl = el;
   });
 
   if (replyEl) {
     let el = replyEl;
     while (el.parentElement && el.parentElement !== comment) el = el.parentElement;
-    return el; // direct child = action bar row; badge goes after it
+    return el; // direct child = action bar row; badge inserted after it
   }
 
-  // Fallback: use the last direct child (typically the action bar)
-  return comment.lastElementChild ?? comment;
+  // Fallback: last direct child that is NOT a nested commentList section
+  let lastNonList = null;
+  for (const child of comment.children) {
+    if (!child.getAttribute('data-testid')?.includes('commentList')) lastNonList = child;
+  }
+  return lastNonList ?? comment.lastElementChild ?? comment;
 }
 
 // ── Core processing ───────────────────────────────────────────────────────────
@@ -253,7 +266,9 @@ function commentInsertionAnchor(comment) {
 //   - Re-rendered elements get their badge re-injected instantly from cache
 //   - Two elements with identical text don't trigger duplicate API calls
 
-async function processItem(element, processedAttr, anchorFn, minLength) {
+const COMMENT_BADGE_CLASS = 'ai-detector-badge--comment';
+
+async function processItem(element, processedAttr, anchorFn, minLength, modClass = '') {
   if (element.hasAttribute(processedAttr)) return;
   element.setAttribute(processedAttr, 'true');
 
@@ -263,32 +278,31 @@ async function processItem(element, processedAttr, anchorFn, minLength) {
   const key    = textKey(text);
   const anchor = anchorFn(element);
 
+  // Stamp the optional modifier class onto a badge element
+  function stamp(el) { if (modClass) el.classList.add(modClass); return el; }
+
   // Re-render hit: inject from cache immediately, no API call needed
   if (analysisCache.has(key)) {
-    const cached = analysisCache.get(key);
-    anchor.insertAdjacentElement('afterend', badgeFromCached(cached));
+    anchor.insertAdjacentElement('afterend', stamp(badgeFromCached(analysisCache.get(key))));
     return;
   }
 
-  // Duplicate in-flight: another element with the same text is already being
-  // analysed — skip rather than fire a second identical API request
+  // Duplicate in-flight: skip to avoid a second identical API request
   if (pendingKeys.has(key)) return;
   pendingKeys.add(key);
 
-  const loading = makeBadge('loading');
+  const loading = stamp(makeBadge('loading'));
   anchor.insertAdjacentElement('afterend', loading);
 
   try {
     const result = await sendToBackground(text);
     analysisCache.set(key, { ok: true, score: result.score, reason: result.reason });
-    loading.replaceWith(makeBadge('score', result));
+    loading.replaceWith(stamp(makeBadge('score', result)));
   } catch (err) {
     analysisCache.set(key, { ok: false, message: err.message });
-    loading.replaceWith(
-      err.message === 'NO_API_KEY'
-        ? makeBadge('no-key')
-        : makeBadge('error', { message: err.message })
-    );
+    loading.replaceWith(stamp(
+      err.message === 'NO_API_KEY' ? makeBadge('no-key') : makeBadge('error', { message: err.message })
+    ));
   } finally {
     pendingKeys.delete(key);
   }
@@ -308,7 +322,7 @@ function processPost(post) {
 }
 
 function processComment(comment) {
-  return processItem(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, MIN_COMMENT_LENGTH);
+  return processItem(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, MIN_COMMENT_LENGTH, COMMENT_BADGE_CLASS);
 }
 
 function sendToBackground(text) {
@@ -369,7 +383,7 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.11 loaded');
+  console.log('[AI Detector] v1.0.12 loaded');
   chrome.storage.sync.get(['colorMode', 'showPercentage', 'analyzeComments'], (result) => {
     if (result.colorMode !== undefined)       settings.colorMode       = result.colorMode;
     if (result.showPercentage !== undefined)  settings.showPercentage  = result.showPercentage;

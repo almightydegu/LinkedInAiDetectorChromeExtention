@@ -5,6 +5,17 @@
   padding: 0 16px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
   line-height: 1;
+  /* Render above LinkedIn's vertical thread-line pseudo-elements */
+  position: relative;
+  z-index: 2;
+  background: #fff; /* solid background so the thread line doesn't show through */
+}
+
+/* Comment / reply badges: remove horizontal padding so the pill aligns
+   with the comment text rather than the outer post edge */
+.ai-detector-badge--comment {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .aid-inner {
