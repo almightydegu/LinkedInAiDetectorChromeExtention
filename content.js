@@ -30,7 +30,14 @@ const LOADING_SVG = `
   <path d="M12 3a9 9 0 0 1 9 9" stroke-linecap="round"/>
 </svg>`;
 
+// ── Settings (loaded at init, cached for the page session) ───────────────────
+
+const settings = { colorMode: 'sentiment', showPercentage: true };
+
 // ── Score mapping ─────────────────────────────────────────────────────────────
+
+const NEUTRAL_COLOR  = '#94a3b8'; // slate-400 — used in neutral mode
+const HUMAN_COLOR    = '#16a34a'; // green-600
 
 function scoreLevel(score) {
   if (score <= 20) return { robots: 0, color: '#16a34a', label: 'Human written' };
@@ -42,14 +49,17 @@ function scoreLevel(score) {
 }
 
 function buildIcons(score) {
-  const { robots, color } = scoreLevel(score);
+  const { robots, color: sentimentColor } = scoreLevel(score);
   const humans = 5 - robots;
+  const neutral = settings.colorMode === 'neutral';
+  const robotColor = neutral ? NEUTRAL_COLOR : sentimentColor;
+  const humanColor = neutral ? NEUTRAL_COLOR : HUMAN_COLOR;
   let html = '';
   for (let i = 0; i < robots; i++) {
-    html += `<span class="ai-icon" style="color:${color}" title="AI indicator">${ROBOT_SVG}</span>`;
+    html += `<span class="ai-icon" style="color:${robotColor}" title="AI indicator">${ROBOT_SVG}</span>`;
   }
   for (let i = 0; i < humans; i++) {
-    html += `<span class="ai-icon ai-icon-human" title="Human indicator">${HUMAN_SVG}</span>`;
+    html += `<span class="ai-icon" style="color:${humanColor}" title="Human indicator">${HUMAN_SVG}</span>`;
   }
   return html;
 }
@@ -72,10 +82,15 @@ function makeBadge(state, data = {}) {
     case 'score': {
       const { score, reason } = data;
       const { label, color } = scoreLevel(score);
+      const neutral = settings.colorMode === 'neutral';
+      const labelColor = neutral ? '#64748b' : color;
+      const pct = settings.showPercentage
+        ? ` <span class="aid-pct">(${score}%)</span>`
+        : '';
       wrap.innerHTML = `
         <div class="aid-inner" title="${score}% AI probability — ${reason}">
           <div class="aid-icons">${buildIcons(score)}</div>
-          <span class="aid-text" style="color:${color}">${label} <span class="aid-pct">(${score}%)</span></span>
+          <span class="aid-text" style="color:${labelColor}">${label}${pct}</span>
         </div>`;
       break;
     }
@@ -208,8 +223,13 @@ const domObserver = new MutationObserver(() => {
 });
 
 function init() {
-  console.log('[AI Detector] v1.0.4 loaded');
-  getFeedPosts().forEach(schedulePost);
+  console.log('[AI Detector] v1.0.5 loaded');
+  // Load display settings before processing any posts
+  chrome.storage.sync.get(['colorMode', 'showPercentage'], (result) => {
+    if (result.colorMode)          settings.colorMode     = result.colorMode;
+    if (result.showPercentage !== undefined) settings.showPercentage = result.showPercentage;
+    getFeedPosts().forEach(schedulePost);
+  });
   domObserver.observe(document.body, { childList: true, subtree: true });
 }
 
