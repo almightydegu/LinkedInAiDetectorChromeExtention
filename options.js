@@ -1,66 +1,77 @@
 // options.js
 
-// ── API Key ───────────────────────────────────────────────────────────────────
+const apiKeyInput      = document.getElementById('apiKey');
+const toggleBtn        = document.getElementById('toggleBtn');
+const saveBtn          = document.getElementById('saveBtn');
+const statusEl         = document.getElementById('status');
 
-const apiKeyInput = document.getElementById('apiKey');
-const toggleBtn   = document.getElementById('toggleBtn');
-const saveBtn     = document.getElementById('saveBtn');
-const statusEl    = document.getElementById('status');
+const showPctToggle    = document.getElementById('showPercentage');
+const pctToggleLabel   = document.getElementById('pctToggleLabel');
+const saveDisplayBtn   = document.getElementById('saveDisplayBtn');
+const displayStatusEl  = document.getElementById('displayStatus');
 
-chrome.storage.sync.get(['claudeApiKey'], ({ claudeApiKey }) => {
-  if (claudeApiKey) apiKeyInput.value = claudeApiKey;
+// ── Load all settings in one batched read ─────────────────────────────────────
+
+chrome.storage.sync.get(['claudeApiKey', 'colorMode', 'showPercentage'], (result) => {
+  // API key
+  if (result.claudeApiKey) apiKeyInput.value = result.claudeApiKey;
+
+  // Colour mode — default to 'sentiment'
+  const mode = result.colorMode || 'sentiment';
+  const modeRadio = document.querySelector(`input[name="colorMode"][value="${mode}"]`);
+  if (modeRadio) modeRadio.checked = true;
+
+  // Show percentage — default to true
+  const showPct = result.showPercentage !== undefined ? result.showPercentage : true;
+  showPctToggle.checked = showPct;
+  updatePctLabel(showPct);
 });
 
+// ── API key ───────────────────────────────────────────────────────────────────
+
 toggleBtn.addEventListener('click', () => {
-  const isHidden = apiKeyInput.type === 'password';
-  apiKeyInput.type = isHidden ? 'text' : 'password';
-  toggleBtn.textContent = isHidden ? 'Hide' : 'Show';
+  const hidden = apiKeyInput.type === 'password';
+  apiKeyInput.type = hidden ? 'text' : 'password';
+  toggleBtn.textContent = hidden ? 'Hide' : 'Show';
 });
 
 saveBtn.addEventListener('click', () => {
   const key = apiKeyInput.value.trim();
-  if (!key) { showStatus(statusEl, 'Please enter an API key.', 'err'); return; }
-  if (!key.startsWith('sk-ant-')) { showStatus(statusEl, 'Key should start with "sk-ant-" — double-check it.', 'err'); return; }
-  chrome.storage.sync.set({ claudeApiKey: key }, () => showStatus(statusEl, 'API key saved!', 'ok'));
+  if (!key) {
+    showStatus(statusEl, 'Please enter an API key.', 'err');
+    return;
+  }
+  if (!key.startsWith('sk-ant-')) {
+    showStatus(statusEl, 'Key should start with "sk-ant-" — double-check it.', 'err');
+    return;
+  }
+  chrome.storage.sync.set({ claudeApiKey: key }, () => {
+    showStatus(statusEl, 'API key saved!', 'ok');
+  });
 });
 
-// ── Display Settings ──────────────────────────────────────────────────────────
+// ── Display settings ──────────────────────────────────────────────────────────
 
-const showPercentageToggle = document.getElementById('showPercentage');
-const pctToggleLabel       = document.getElementById('pctToggleLabel');
-const saveDisplayBtn       = document.getElementById('saveDisplayBtn');
-const displayStatusEl      = document.getElementById('displayStatus');
-
-// Load saved display settings
-chrome.storage.sync.get(['colorMode', 'showPercentage'], (result) => {
-  const mode = result.colorMode || 'sentiment';
-  document.querySelector(`input[name="colorMode"][value="${mode}"]`).checked = true;
-
-  const showPct = result.showPercentage !== undefined ? result.showPercentage : true;
-  showPercentageToggle.checked = showPct;
-  updatePctLabel(showPct);
-});
-
-showPercentageToggle.addEventListener('change', () => {
-  updatePctLabel(showPercentageToggle.checked);
-});
+showPctToggle.addEventListener('change', () => updatePctLabel(showPctToggle.checked));
 
 saveDisplayBtn.addEventListener('click', () => {
   const colorMode      = document.querySelector('input[name="colorMode"]:checked')?.value || 'sentiment';
-  const showPercentage = showPercentageToggle.checked;
+  const showPercentage = showPctToggle.checked;
   chrome.storage.sync.set({ colorMode, showPercentage }, () => {
     showStatus(displayStatusEl, 'Display settings saved!', 'ok');
   });
 });
 
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
 function updatePctLabel(checked) {
   pctToggleLabel.textContent = checked ? 'Show percentage' : 'Hide percentage';
 }
 
-// ── Shared ────────────────────────────────────────────────────────────────────
-
 function showStatus(el, msg, type) {
   el.textContent = msg;
   el.className = `status ${type}`;
-  if (type === 'ok') setTimeout(() => { el.textContent = ''; el.className = 'status'; }, 3000);
+  if (type === 'ok') {
+    setTimeout(() => { el.textContent = ''; el.className = 'status'; }, 3000);
+  }
 }

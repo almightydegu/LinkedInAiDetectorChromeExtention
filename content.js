@@ -1,7 +1,12 @@
 // content.js — Injected into LinkedIn pages
 
-const PROCESSED_ATTR = 'data-ai-detector-done';
-const BADGE_CLASS = 'ai-detector-badge';
+const PROCESSED_ATTR   = 'data-ai-detector-done';
+const BADGE_CLASS      = 'ai-detector-badge';
+const MIN_TEXT_LENGTH  = 80;
+
+// Selector for the per-post options button — the only stable DOM anchor
+// LinkedIn exposes after switching to hashed class names.
+const MENU_BTN_SELECTOR = '[aria-label*="control menu for post"], [aria-label*="menu for post"]';
 
 // ── SVG Icons ────────────────────────────────────────────────────────────────
 
@@ -30,38 +35,55 @@ const LOADING_SVG = `
   <path d="M12 3a9 9 0 0 1 9 9" stroke-linecap="round"/>
 </svg>`;
 
-// ── Settings (loaded at init, cached for the page session) ───────────────────
+// ── Settings (loaded before any posts are processed) ──────────────────────────
 
 const settings = { colorMode: 'sentiment', showPercentage: true };
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Prevent XSS when inserting API-sourced strings into HTML attributes or text.
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 // ── Score mapping ─────────────────────────────────────────────────────────────
 
-const NEUTRAL_COLOR  = '#94a3b8'; // slate-400 — used in neutral mode
-const HUMAN_COLOR    = '#16a34a'; // green-600
+const NEUTRAL_COLOR = '#94a3b8'; // slate-400
+const HUMAN_COLOR   = '#16a34a'; // green-600
+
+const SCORE_LEVELS = [
+  { max: 20,  robots: 0, color: '#16a34a', label: 'Human written' },
+  { max: 40,  robots: 1, color: '#65a30d', label: 'Likely human'  },
+  { max: 60,  robots: 2, color: '#d97706', label: 'Uncertain'     },
+  { max: 80,  robots: 3, color: '#ea580c', label: 'Likely AI'     },
+  { max: 90,  robots: 4, color: '#dc2626', label: 'Mostly AI'     },
+  { max: 100, robots: 5, color: '#b91c1c', label: 'AI written'    },
+];
 
 function scoreLevel(score) {
-  if (score <= 20) return { robots: 0, color: '#16a34a', label: 'Human written' };
-  if (score <= 40) return { robots: 1, color: '#65a30d', label: 'Likely human' };
-  if (score <= 60) return { robots: 2, color: '#d97706', label: 'Uncertain' };
-  if (score <= 80) return { robots: 3, color: '#ea580c', label: 'Likely AI' };
-  if (score <= 90) return { robots: 4, color: '#dc2626', label: 'Mostly AI' };
-  return                { robots: 5, color: '#b91c1c', label: 'AI written' };
+  return SCORE_LEVELS.find(l => score <= l.max) ?? SCORE_LEVELS.at(-1);
 }
 
 function buildIcons(score) {
   const { robots, color: sentimentColor } = scoreLevel(score);
-  const humans = 5 - robots;
-  const neutral = settings.colorMode === 'neutral';
+  const neutral    = settings.colorMode === 'neutral';
   const robotColor = neutral ? NEUTRAL_COLOR : sentimentColor;
   const humanColor = neutral ? NEUTRAL_COLOR : HUMAN_COLOR;
-  let html = '';
-  for (let i = 0; i < robots; i++) {
-    html += `<span class="ai-icon" style="color:${robotColor}" title="AI indicator">${ROBOT_SVG}</span>`;
-  }
-  for (let i = 0; i < humans; i++) {
-    html += `<span class="ai-icon" style="color:${humanColor}" title="Human indicator">${HUMAN_SVG}</span>`;
-  }
-  return html;
+  const humans     = 5 - robots;
+
+  const robotIcons = Array.from({ length: robots }, () =>
+    `<span class="ai-icon" style="color:${robotColor}" title="AI indicator">${ROBOT_SVG}</span>`
+  ).join('');
+
+  const humanIcons = Array.from({ length: humans }, () =>
+    `<span class="ai-icon" style="color:${humanColor}" title="Human indicator">${HUMAN_SVG}</span>`
+  ).join('');
+
+  return robotIcons + humanIcons;
 }
 
 // ── Badge factory ─────────────────────────────────────────────────────────────
@@ -81,14 +103,15 @@ function makeBadge(state, data = {}) {
 
     case 'score': {
       const { score, reason } = data;
-      const { label, color } = scoreLevel(score);
-      const neutral = settings.colorMode === 'neutral';
+      const { label, color }  = scoreLevel(score);
+      const neutral    = settings.colorMode === 'neutral';
       const labelColor = neutral ? '#64748b' : color;
-      const pct = settings.showPercentage
+      const pct        = settings.showPercentage
         ? ` <span class="aid-pct">(${score}%)</span>`
         : '';
+      // escapeHtml guards against any special chars in the API-sourced reason string
       wrap.innerHTML = `
-        <div class="aid-inner" title="${score}% AI probability — ${reason}">
+        <div class="aid-inner" title="${score}% AI probability — ${escapeHtml(reason)}">
           <div class="aid-icons">${buildIcons(score)}</div>
           <span class="aid-text" style="color:${labelColor}">${label}${pct}</span>
         </div>`;
@@ -102,13 +125,10 @@ function makeBadge(state, data = {}) {
         </div>`;
       break;
 
-    case 'short':
-      return null;
-
     case 'error':
       wrap.innerHTML = `
         <div class="aid-inner aid-err">
-          <span class="aid-text">⚠ ${data.message || 'Analysis failed'}</span>
+          <span class="aid-text">⚠ ${escapeHtml(data.message || 'Analysis failed')}</span>
         </div>`;
       break;
   }
@@ -117,56 +137,49 @@ function makeBadge(state, data = {}) {
 }
 
 // ── Post detection ────────────────────────────────────────────────────────────
-// LinkedIn now uses hashed CSS class names that change with every deploy.
-// The only stable hooks are data-testid="mainFeed" (the feed wrapper) and
-// the aria-label on the per-post control-menu button.
+// LinkedIn uses hashed CSS class names that change with every deploy.
+// We identify posts as direct children of [data-testid="mainFeed"] that
+// contain the per-post options button (the only stable aria-label available).
 
 function getFeedPosts() {
   const feed = document.querySelector('[data-testid="mainFeed"]');
   if (!feed) return [];
   return Array.from(feed.children).filter(child =>
-    child.querySelector('[aria-label*="control menu for post"]') ||
-    child.querySelector('[aria-label*="menu for post"]')
+    child.querySelector(MENU_BTN_SELECTOR)
   );
 }
 
 // ── Post text extraction ──────────────────────────────────────────────────────
-// Class names are hashed, so we find the element with the most direct text
-// content — that's reliably the post body.
+// Class names are hashed so we find the element whose direct text nodes
+// contain the most content — that's reliably the post body.
 
 function extractText(post) {
   let bestText = '';
   post.querySelectorAll('span, p, div').forEach(el => {
-    // Only count text that belongs directly to this element (not children)
     const directText = Array.from(el.childNodes)
       .filter(n => n.nodeType === Node.TEXT_NODE)
       .map(n => n.textContent.trim())
       .join(' ')
       .trim();
-    if (directText.length > bestText.length) {
-      bestText = directText;
-    }
+    if (directText.length > bestText.length) bestText = directText;
   });
-  return bestText.length >= 80 ? bestText : null;
+  return bestText.length >= MIN_TEXT_LENGTH ? bestText : null;
 }
 
 // ── Insertion point ───────────────────────────────────────────────────────────
-// Walk up 3 levels from the control-menu button to clear the author header,
-// then insert the badge after that ancestor element.
+// Walk 3 levels up from the options button to clear the author header row,
+// then insert the badge as the next sibling of that ancestor.
 
 function insertionAnchor(post) {
-  const btn = post.querySelector('[aria-label*="control menu for post"]') ||
-              post.querySelector('[aria-label*="menu for post"]');
-  if (btn) {
-    let el = btn;
-    for (let i = 0; i < 3; i++) {
-      if (!el.parentElement || el.parentElement === post) break;
-      el = el.parentElement;
-    }
-    return el;
+  const btn = post.querySelector(MENU_BTN_SELECTOR);
+  if (!btn) return post.firstElementChild ?? post;
+
+  let el = btn;
+  for (let i = 0; i < 3; i++) {
+    if (!el.parentElement || el.parentElement === post) break;
+    el = el.parentElement;
   }
-  // Fallback: insert at the top of the post container
-  return post.firstElementChild || post;
+  return el;
 }
 
 // ── Core processing ───────────────────────────────────────────────────────────
@@ -176,24 +189,14 @@ async function processPost(post) {
   post.setAttribute(PROCESSED_ATTR, 'true');
 
   const text = extractText(post);
-  if (!text) return; // too short or no text found
+  if (!text) return;
 
-  const anchor = insertionAnchor(post);
+  const anchor  = insertionAnchor(post);
   const loading = makeBadge('loading');
   anchor.insertAdjacentElement('afterend', loading);
 
   try {
-    const result = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'analyzePost', text }, (response) => {
-        if (chrome.runtime.lastError) {
-          return reject(new Error(chrome.runtime.lastError.message));
-        }
-        if (!response) return reject(new Error('No response from background'));
-        if (!response.success) return reject(new Error(response.error || 'Unknown error'));
-        resolve(response);
-      });
-    });
-
+    const result = await sendToBackground(text);
     loading.replaceWith(makeBadge('score', result));
   } catch (err) {
     loading.replaceWith(
@@ -204,33 +207,57 @@ async function processPost(post) {
   }
 }
 
-// ── Observers ─────────────────────────────────────────────────────────────────
-// Note: IntersectionObserver cannot be used here because LinkedIn's post
-// containers have display:contents (data-display-contents="true"), which means
-// they have no layout box and intersection events never fire on them.
-// Posts are added to the DOM as the user scrolls, so processing on discovery
-// is equivalent to processing on visibility.
-
-function schedulePost(el) {
-  if (!el.hasAttribute(PROCESSED_ATTR)) {
-    processPost(el);
-  }
+function sendToBackground(text) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ action: 'analyzePost', text }, (response) => {
+      if (chrome.runtime.lastError) {
+        return reject(new Error(chrome.runtime.lastError.message));
+      }
+      if (!response)          return reject(new Error('No response from background'));
+      if (!response.success)  return reject(new Error(response.error || 'Unknown error'));
+      resolve(response);
+    });
+  });
 }
 
-// Watch for new posts added to the feed as the user scrolls
+// ── Observers ─────────────────────────────────────────────────────────────────
+// IntersectionObserver cannot be used: LinkedIn's post containers have
+// display:contents so they have no layout box and visibility events never fire.
+// Posts are added to the DOM as the user scrolls, so processing on discovery
+// is equivalent to processing on visibility.
+//
+// The MutationObserver is debounced to avoid hammering getFeedPosts on every
+// small DOM change (LinkedIn mutates the DOM constantly, including when the
+// extension itself inserts badges).
+
+let mutationDebounceTimer = null;
+
 const domObserver = new MutationObserver(() => {
-  getFeedPosts().forEach(schedulePost);
+  clearTimeout(mutationDebounceTimer);
+  mutationDebounceTimer = setTimeout(() => {
+    getFeedPosts().forEach(post => {
+      if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
+    });
+  }, 150);
 });
 
+// ── Init ──────────────────────────────────────────────────────────────────────
+// Settings must be loaded before processing begins so the first batch of posts
+// renders with the correct colour mode and percentage preference.
+
 function init() {
-  console.log('[AI Detector] v1.0.5 loaded');
-  // Load display settings before processing any posts
+  console.log('[AI Detector] v1.0.6 loaded');
   chrome.storage.sync.get(['colorMode', 'showPercentage'], (result) => {
-    if (result.colorMode)          settings.colorMode     = result.colorMode;
+    if (result.colorMode !== undefined)      settings.colorMode      = result.colorMode;
     if (result.showPercentage !== undefined) settings.showPercentage = result.showPercentage;
-    getFeedPosts().forEach(schedulePost);
+
+    getFeedPosts().forEach(post => {
+      if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
+    });
+
+    // Start observing only after settings are applied
+    domObserver.observe(document.body, { childList: true, subtree: true });
   });
-  domObserver.observe(document.body, { childList: true, subtree: true });
 }
 
 if (document.readyState === 'loading') {
