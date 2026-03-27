@@ -1,12 +1,15 @@
 // content.js — Injected into LinkedIn pages
 
-const PROCESSED_ATTR   = 'data-ai-detector-done';
-const BADGE_CLASS      = 'ai-detector-badge';
-const MIN_TEXT_LENGTH  = 80;
+const PROCESSED_ATTR         = 'data-ai-detector-done';
+const COMMENT_PROCESSED_ATTR = 'data-ai-comment-done';
+const BADGE_CLASS            = 'ai-detector-badge';
+const MIN_TEXT_LENGTH        = 80;
+const MIN_COMMENT_LENGTH     = 100;
 
 // Selector for the per-post options button — the only stable DOM anchor
 // LinkedIn exposes after switching to hashed class names.
-const MENU_BTN_SELECTOR = '[aria-label*="control menu for post"], [aria-label*="menu for post"]';
+const MENU_BTN_SELECTOR         = '[aria-label*="control menu for post"], [aria-label*="menu for post"]';
+const COMMENT_MENU_BTN_SELECTOR = '[aria-label*="View more options for"][aria-label*="comment"]';
 
 // ── SVG Icons ────────────────────────────────────────────────────────────────
 
@@ -37,7 +40,7 @@ const LOADING_SVG = `
 
 // ── Settings (loaded before any posts are processed) ──────────────────────────
 
-const settings = { colorMode: 'sentiment', showPercentage: true };
+const settings = { colorMode: 'sentiment', showPercentage: true, analyzeComments: false };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -149,6 +152,15 @@ function getFeedPosts() {
   );
 }
 
+// ── Comment detection ─────────────────────────────────────────────────────────
+// LinkedIn gives each comment container a data-testid containing "commentList".
+// The "View more options" button inside each comment is the stable anchor,
+// mirroring the control-menu button used for posts.
+
+function getComments() {
+  return Array.from(document.querySelectorAll(`[data-testid*="commentList"]`));
+}
+
 // ── Post text extraction ──────────────────────────────────────────────────────
 // Class names are hashed so we find the element whose direct text nodes
 // contain the most content — that's reliably the post body.
@@ -166,9 +178,11 @@ function extractText(post) {
   return bestText.length >= MIN_TEXT_LENGTH ? bestText : null;
 }
 
-// ── Insertion point ───────────────────────────────────────────────────────────
-// Walk 3 levels up from the options button to clear the author header row,
-// then insert the badge as the next sibling of that ancestor.
+// ── Insertion points ──────────────────────────────────────────────────────────
+// Posts: walk 3 levels up from the options button to clear the author header,
+//        insert after that ancestor element.
+// Comments: the first direct child is always the author header block —
+//           insert after it so the badge sits between author info and text.
 
 function insertionAnchor(post) {
   const btn = post.querySelector(MENU_BTN_SELECTOR);
@@ -182,6 +196,10 @@ function insertionAnchor(post) {
   return el;
 }
 
+function commentInsertionAnchor(comment) {
+  return comment.firstElementChild ?? comment;
+}
+
 // ── Core processing ───────────────────────────────────────────────────────────
 
 async function processPost(post) {
@@ -192,6 +210,29 @@ async function processPost(post) {
   if (!text) return;
 
   const anchor  = insertionAnchor(post);
+  const loading = makeBadge('loading');
+  anchor.insertAdjacentElement('afterend', loading);
+
+  try {
+    const result = await sendToBackground(text);
+    loading.replaceWith(makeBadge('score', result));
+  } catch (err) {
+    loading.replaceWith(
+      err.message === 'NO_API_KEY'
+        ? makeBadge('no-key')
+        : makeBadge('error', { message: err.message })
+    );
+  }
+}
+
+async function processComment(comment) {
+  if (comment.hasAttribute(COMMENT_PROCESSED_ATTR)) return;
+  comment.setAttribute(COMMENT_PROCESSED_ATTR, 'true');
+
+  const text = extractText(comment);
+  if (!text || text.length < MIN_COMMENT_LENGTH) return;
+
+  const anchor  = commentInsertionAnchor(comment);
   const loading = makeBadge('loading');
   anchor.insertAdjacentElement('afterend', loading);
 
@@ -238,6 +279,11 @@ const domObserver = new MutationObserver(() => {
     getFeedPosts().forEach(post => {
       if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
     });
+    if (settings.analyzeComments) {
+      getComments().forEach(comment => {
+        if (!comment.hasAttribute(COMMENT_PROCESSED_ATTR)) processComment(comment);
+      });
+    }
   }, 150);
 });
 
@@ -246,14 +292,20 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.6 loaded');
-  chrome.storage.sync.get(['colorMode', 'showPercentage'], (result) => {
-    if (result.colorMode !== undefined)      settings.colorMode      = result.colorMode;
-    if (result.showPercentage !== undefined) settings.showPercentage = result.showPercentage;
+  console.log('[AI Detector] v1.0.7 loaded');
+  chrome.storage.sync.get(['colorMode', 'showPercentage', 'analyzeComments'], (result) => {
+    if (result.colorMode !== undefined)       settings.colorMode       = result.colorMode;
+    if (result.showPercentage !== undefined)  settings.showPercentage  = result.showPercentage;
+    if (result.analyzeComments !== undefined) settings.analyzeComments = result.analyzeComments;
 
     getFeedPosts().forEach(post => {
       if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
     });
+    if (settings.analyzeComments) {
+      getComments().forEach(comment => {
+        if (!comment.hasAttribute(COMMENT_PROCESSED_ATTR)) processComment(comment);
+      });
+    }
 
     // Start observing only after settings are applied
     domObserver.observe(document.body, { childList: true, subtree: true });

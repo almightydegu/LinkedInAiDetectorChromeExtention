@@ -5,14 +5,16 @@ const toggleBtn        = document.getElementById('toggleBtn');
 const saveBtn          = document.getElementById('saveBtn');
 const statusEl         = document.getElementById('status');
 
-const showPctToggle    = document.getElementById('showPercentage');
-const pctToggleLabel   = document.getElementById('pctToggleLabel');
-const saveDisplayBtn   = document.getElementById('saveDisplayBtn');
-const displayStatusEl  = document.getElementById('displayStatus');
+const showPctToggle       = document.getElementById('showPercentage');
+const pctToggleLabel      = document.getElementById('pctToggleLabel');
+const analyzeCommentsToggle = document.getElementById('analyzeComments');
+const commentsToggleLabel = document.getElementById('commentsToggleLabel');
+const saveDisplayBtn      = document.getElementById('saveDisplayBtn');
+const displayStatusEl     = document.getElementById('displayStatus');
 
 // ── Load all settings in one batched read ─────────────────────────────────────
 
-chrome.storage.sync.get(['claudeApiKey', 'colorMode', 'showPercentage'], (result) => {
+chrome.storage.sync.get(['claudeApiKey', 'colorMode', 'showPercentage', 'analyzeComments'], (result) => {
   // API key
   if (result.claudeApiKey) apiKeyInput.value = result.claudeApiKey;
 
@@ -25,6 +27,11 @@ chrome.storage.sync.get(['claudeApiKey', 'colorMode', 'showPercentage'], (result
   const showPct = result.showPercentage !== undefined ? result.showPercentage : true;
   showPctToggle.checked = showPct;
   updatePctLabel(showPct);
+
+  // Analyse comments — default to false
+  const analyzeComments = result.analyzeComments !== undefined ? result.analyzeComments : false;
+  analyzeCommentsToggle.checked = analyzeComments;
+  updateCommentsLabel(analyzeComments);
 });
 
 // ── API key ───────────────────────────────────────────────────────────────────
@@ -53,11 +60,13 @@ saveBtn.addEventListener('click', () => {
 // ── Display settings ──────────────────────────────────────────────────────────
 
 showPctToggle.addEventListener('change', () => updatePctLabel(showPctToggle.checked));
+analyzeCommentsToggle.addEventListener('change', () => updateCommentsLabel(analyzeCommentsToggle.checked));
 
 saveDisplayBtn.addEventListener('click', () => {
-  const colorMode      = document.querySelector('input[name="colorMode"]:checked')?.value || 'sentiment';
-  const showPercentage = showPctToggle.checked;
-  chrome.storage.sync.set({ colorMode, showPercentage }, () => {
+  const colorMode       = document.querySelector('input[name="colorMode"]:checked')?.value || 'sentiment';
+  const showPercentage  = showPctToggle.checked;
+  const analyzeComments = analyzeCommentsToggle.checked;
+  chrome.storage.sync.set({ colorMode, showPercentage, analyzeComments }, () => {
     showStatus(displayStatusEl, 'Display settings saved!', 'ok');
   });
 });
@@ -66,6 +75,10 @@ saveDisplayBtn.addEventListener('click', () => {
 
 function updatePctLabel(checked) {
   pctToggleLabel.textContent = checked ? 'Show percentage' : 'Hide percentage';
+}
+
+function updateCommentsLabel(checked) {
+  commentsToggleLabel.textContent = checked ? 'Comment analysis on' : 'Comment analysis off';
 }
 
 function showStatus(el, msg, type) {
