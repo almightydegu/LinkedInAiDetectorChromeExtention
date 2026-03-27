@@ -167,16 +167,19 @@ function getFeedPosts() {
 
 // ── Comment detection ─────────────────────────────────────────────────────────
 // Each individual comment container has a data-testid containing "commentList".
-// We locate them by finding every comment options button and walking up to the
-// nearest commentList ancestor — this correctly handles "Load more comments"
-// because new elements are discovered fresh each time the observer fires,
-// regardless of whether a parent container has already been marked done.
+// The options button (three-dot menu) is rendered lazily on hover, so we cannot
+// rely on it for discovery. The Like | Reply action bar is always in the DOM
+// as soon as the comment renders, so we use the reply button as the primary
+// anchor. The options button is kept as a secondary check.
+
+const COMMENT_REPLY_SELECTOR = '[aria-label*="Reply to"], [aria-label*="reply to"]';
 
 function getComments() {
   const seen    = new Set();
   const results = [];
-  document.querySelectorAll(COMMENT_MENU_BTN_SELECTOR).forEach(btn => {
-    let el = btn;
+
+  function walkToCommentList(startEl) {
+    let el = startEl;
     while (el.parentElement) {
       el = el.parentElement;
       const testid = el.getAttribute('data-testid');
@@ -185,7 +188,13 @@ function getComments() {
         break;
       }
     }
-  });
+  }
+
+  // Primary: reply buttons — always present once a comment is rendered
+  document.querySelectorAll(COMMENT_REPLY_SELECTOR).forEach(walkToCommentList);
+  // Secondary: options buttons — present for eagerly rendered comments
+  document.querySelectorAll(COMMENT_MENU_BTN_SELECTOR).forEach(walkToCommentList);
+
   return results;
 }
 
@@ -330,19 +339,33 @@ function sendToBackground(text) {
 // extension itself inserts badges).
 
 let mutationDebounceTimer = null;
+let lateDebounceTimer     = null;
+
+function scanAll() {
+  getFeedPosts().forEach(post => {
+    if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
+  });
+  if (settings.analyzeComments) {
+    getComments().forEach(comment => {
+      if (!comment.hasAttribute(COMMENT_PROCESSED_ATTR)) processComment(comment);
+    });
+  }
+}
 
 const domObserver = new MutationObserver(() => {
+  // Fast scan: runs 150 ms after the last DOM mutation
   clearTimeout(mutationDebounceTimer);
-  mutationDebounceTimer = setTimeout(() => {
-    getFeedPosts().forEach(post => {
-      if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
-    });
-    if (settings.analyzeComments) {
-      getComments().forEach(comment => {
-        if (!comment.hasAttribute(COMMENT_PROCESSED_ATTR)) processComment(comment);
-      });
-    }
-  }, 150);
+  mutationDebounceTimer = setTimeout(scanAll, 150);
+
+  // Late scan: runs once, ~800 ms after the first mutation in a burst.
+  // Catches comments whose Like|Reply bar was not yet in the DOM when the
+  // fast scan fired (e.g. "Load more comments" with slow network/render).
+  if (!lateDebounceTimer) {
+    lateDebounceTimer = setTimeout(() => {
+      lateDebounceTimer = null;
+      scanAll();
+    }, 800);
+  }
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -350,20 +373,13 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.8 loaded');
+  console.log('[AI Detector] v1.0.9 loaded');
   chrome.storage.sync.get(['colorMode', 'showPercentage', 'analyzeComments'], (result) => {
     if (result.colorMode !== undefined)       settings.colorMode       = result.colorMode;
     if (result.showPercentage !== undefined)  settings.showPercentage  = result.showPercentage;
     if (result.analyzeComments !== undefined) settings.analyzeComments = result.analyzeComments;
 
-    getFeedPosts().forEach(post => {
-      if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
-    });
-    if (settings.analyzeComments) {
-      getComments().forEach(comment => {
-        if (!comment.hasAttribute(COMMENT_PROCESSED_ATTR)) processComment(comment);
-      });
-    }
+    scanAll();
 
     // Start observing only after settings are applied
     domObserver.observe(document.body, { childList: true, subtree: true });
