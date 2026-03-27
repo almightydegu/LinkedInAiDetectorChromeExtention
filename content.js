@@ -166,34 +166,29 @@ function getFeedPosts() {
 }
 
 // ── Comment detection ─────────────────────────────────────────────────────────
-// Each individual comment container has a data-testid containing "commentList".
-// The options button (three-dot menu) is rendered lazily on hover, so we cannot
-// rely on it for discovery. The Like | Reply action bar is always in the DOM
-// as soon as the comment renders, so we use the reply button as the primary
-// anchor. The options button is kept as a secondary check.
-
-const COMMENT_REPLY_SELECTOR = '[aria-label*="Reply to"], [aria-label*="reply to"]';
+// [data-testid*="commentList"] is the comment SECTION container (one per post),
+// not individual comments. We mirror getFeedPosts(): find the section, then
+// treat its direct children as individual comment items.
 
 function getComments() {
-  const seen    = new Set();
-  const results = [];
+  const sections = document.querySelectorAll('[data-testid*="commentList"]');
+  const seen     = new Set();
+  const results  = [];
 
-  function walkToCommentList(startEl) {
-    let el = startEl;
-    while (el.parentElement) {
-      el = el.parentElement;
-      const testid = el.getAttribute('data-testid');
-      if (testid && testid.includes('commentList')) {
-        if (!seen.has(el)) { seen.add(el); results.push(el); }
-        break;
+  sections.forEach(section => {
+    // Skip nested commentList elements (a section inside a section)
+    if (section.parentElement?.closest('[data-testid*="commentList"]')) return;
+
+    Array.from(section.children).forEach(child => {
+      if (seen.has(child)) return;
+      // Filter out spacers, load-more buttons, and empty wrappers.
+      // A real comment has meaningful text content.
+      if (child.textContent.trim().length > 20) {
+        seen.add(child);
+        results.push(child);
       }
-    }
-  }
-
-  // Primary: reply buttons — always present once a comment is rendered
-  document.querySelectorAll(COMMENT_REPLY_SELECTOR).forEach(walkToCommentList);
-  // Secondary: options buttons — present for eagerly rendered comments
-  document.querySelectorAll(COMMENT_MENU_BTN_SELECTOR).forEach(walkToCommentList);
+    });
+  });
 
   return results;
 }
@@ -234,22 +229,22 @@ function insertionAnchor(post) {
 }
 
 function commentInsertionAnchor(comment) {
-  // Preferred: locate the Like | Reply action bar via the reply button and
-  // return it so the badge is inserted right after it — visually adjacent to
-  // the reaction/reply controls, not above the comment text.
-  const replyBtn = comment.querySelector('[aria-label*="Reply to"], [aria-label*="reply to"]');
-  if (replyBtn) {
-    let el = replyBtn;
+  // Find the action bar (Like | Reply row) by locating a button/span whose
+  // visible text is "Reply". LinkedIn does NOT use aria-label="Reply to…" on
+  // the per-comment reply link — it's just visible text.
+  let replyEl = null;
+  comment.querySelectorAll('button, span[role="button"], span').forEach(el => {
+    if (!replyEl && el.textContent.trim() === 'Reply') replyEl = el;
+  });
+
+  if (replyEl) {
+    let el = replyEl;
     while (el.parentElement && el.parentElement !== comment) el = el.parentElement;
     return el; // direct child = action bar row; badge goes after it
   }
 
-  // Fallback: walk up from options button to a direct child of the container
-  const btn = comment.querySelector(COMMENT_MENU_BTN_SELECTOR);
-  if (!btn) return comment.firstElementChild ?? comment;
-  let el = btn;
-  while (el.parentElement && el.parentElement !== comment) el = el.parentElement;
-  return el;
+  // Fallback: use the last direct child (typically the action bar)
+  return comment.lastElementChild ?? comment;
 }
 
 // ── Core processing ───────────────────────────────────────────────────────────
@@ -373,7 +368,7 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.9 loaded');
+  console.log('[AI Detector] v1.0.10 loaded');
   chrome.storage.sync.get(['colorMode', 'showPercentage', 'analyzeComments'], (result) => {
     if (result.colorMode !== undefined)       settings.colorMode       = result.colorMode;
     if (result.showPercentage !== undefined)  settings.showPercentage  = result.showPercentage;
