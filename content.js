@@ -190,39 +190,26 @@ async function processPost(post) {
 }
 
 // ── Observers ─────────────────────────────────────────────────────────────────
-
-const visibilityObserver = new IntersectionObserver((entries) => {
-  for (const entry of entries) {
-    if (entry.isIntersecting) {
-      visibilityObserver.unobserve(entry.target);
-      processPost(entry.target);
-    }
-  }
-}, { threshold: 0.1 });
+// Note: IntersectionObserver cannot be used here because LinkedIn's post
+// containers have display:contents (data-display-contents="true"), which means
+// they have no layout box and intersection events never fire on them.
+// Posts are added to the DOM as the user scrolls, so processing on discovery
+// is equivalent to processing on visibility.
 
 function schedulePost(el) {
   if (!el.hasAttribute(PROCESSED_ATTR)) {
-    visibilityObserver.observe(el);
+    processPost(el);
   }
 }
 
 // Watch for new posts added to the feed as the user scrolls
 const domObserver = new MutationObserver(() => {
-  const posts = getFeedPosts();
-  if (posts.length) {
-    console.log('[AI Detector] MutationObserver found posts:', posts.length);
-  }
-  posts.forEach(schedulePost);
+  getFeedPosts().forEach(schedulePost);
 });
 
 function init() {
-  console.log('[AI Detector] content script loaded, readyState:', document.readyState);
-
-  const found = getFeedPosts();
-  console.log('[AI Detector] posts found on init:', found.length);
-  found.forEach(schedulePost);
-
-  // Observe the whole body for feed changes (LinkedIn lazy-loads posts)
+  console.log('[AI Detector] v1.0.4 loaded');
+  getFeedPosts().forEach(schedulePost);
   domObserver.observe(document.body, { childList: true, subtree: true });
 }
 
