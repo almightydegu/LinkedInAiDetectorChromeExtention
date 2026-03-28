@@ -3,7 +3,7 @@
 const PROCESSED_ATTR         = 'data-ai-detector-done';
 const COMMENT_PROCESSED_ATTR = 'data-ai-comment-done';
 const BADGE_CLASS            = 'ai-detector-badge';
-const MIN_TEXT_LENGTH        = 80;
+const MIN_POST_LENGTH        = 80;
 const MIN_COMMENT_LENGTH     = 100;
 
 // ── Analysis cache ────────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ const LOADING_SVG = `
 
 // ── Settings (loaded before any posts are processed) ──────────────────────────
 
-const settings = { colorMode: 'sentiment', showPercentage: true, analyzeComments: false };
+const settings = { colorMode: 'sentiment', showPercentage: true, analyzeComments: false, minPostLength: 80, minCommentLength: 100 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -208,7 +208,7 @@ function extractText(post) {
       .trim();
     if (directText.length > bestText.length) bestText = directText;
   });
-  return bestText.length >= MIN_TEXT_LENGTH ? bestText : null;
+  return bestText.length >= MIN_POST_LENGTH ? bestText : null;
 }
 
 // ── Insertion points ──────────────────────────────────────────────────────────
@@ -332,11 +332,11 @@ function badgeFromCached(cached) {
 }
 
 function processPost(post) {
-  return processItem(post, PROCESSED_ATTR, insertionAnchor, MIN_TEXT_LENGTH);
+  return processItem(post, PROCESSED_ATTR, insertionAnchor, settings.minPostLength);
 }
 
 function processComment(comment) {
-  return processItem(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, MIN_COMMENT_LENGTH, COMMENT_BADGE_CLASS);
+  return processItem(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, settings.minCommentLength, COMMENT_BADGE_CLASS);
 }
 
 function sendToBackground(text) {
@@ -397,11 +397,13 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.15 loaded');
-  chrome.storage.sync.get(['colorMode', 'showPercentage', 'analyzeComments'], (result) => {
-    if (result.colorMode !== undefined)       settings.colorMode       = result.colorMode;
-    if (result.showPercentage !== undefined)  settings.showPercentage  = result.showPercentage;
-    if (result.analyzeComments !== undefined) settings.analyzeComments = result.analyzeComments;
+  console.log('[AI Detector] v1.0.16 loaded');
+  chrome.storage.sync.get(['colorMode', 'showPercentage', 'analyzeComments', 'minPostLength', 'minCommentLength'], (result) => {
+    if (result.colorMode !== undefined)        settings.colorMode        = result.colorMode;
+    if (result.showPercentage !== undefined)   settings.showPercentage   = result.showPercentage;
+    if (result.analyzeComments !== undefined)  settings.analyzeComments  = result.analyzeComments;
+    if (result.minPostLength !== undefined)    settings.minPostLength    = result.minPostLength;
+    if (result.minCommentLength !== undefined) settings.minCommentLength = result.minCommentLength;
 
     scanAll();
 

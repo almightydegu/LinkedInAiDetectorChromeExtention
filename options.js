@@ -5,16 +5,18 @@ const toggleBtn        = document.getElementById('toggleBtn');
 const saveBtn          = document.getElementById('saveBtn');
 const statusEl         = document.getElementById('status');
 
-const showPctToggle       = document.getElementById('showPercentage');
-const pctToggleLabel      = document.getElementById('pctToggleLabel');
+const showPctToggle         = document.getElementById('showPercentage');
+const pctToggleLabel        = document.getElementById('pctToggleLabel');
 const analyzeCommentsToggle = document.getElementById('analyzeComments');
-const commentsToggleLabel = document.getElementById('commentsToggleLabel');
-const saveDisplayBtn      = document.getElementById('saveDisplayBtn');
-const displayStatusEl     = document.getElementById('displayStatus');
+const commentsToggleLabel   = document.getElementById('commentsToggleLabel');
+const minPostLengthInput    = document.getElementById('minPostLength');
+const minCommentLengthInput = document.getElementById('minCommentLength');
+const saveDisplayBtn        = document.getElementById('saveDisplayBtn');
+const displayStatusEl       = document.getElementById('displayStatus');
 
 // ── Load all settings in one batched read ─────────────────────────────────────
 
-chrome.storage.sync.get(['claudeApiKey', 'colorMode', 'showPercentage', 'analyzeComments'], (result) => {
+chrome.storage.sync.get(['claudeApiKey', 'colorMode', 'showPercentage', 'analyzeComments', 'minPostLength', 'minCommentLength'], (result) => {
   // API key
   if (result.claudeApiKey) apiKeyInput.value = result.claudeApiKey;
 
@@ -32,6 +34,10 @@ chrome.storage.sync.get(['claudeApiKey', 'colorMode', 'showPercentage', 'analyze
   const analyzeComments = result.analyzeComments !== undefined ? result.analyzeComments : false;
   analyzeCommentsToggle.checked = analyzeComments;
   updateCommentsLabel(analyzeComments);
+
+  // Min lengths — defaults match content.js constants
+  minPostLengthInput.value    = result.minPostLength    ?? 80;
+  minCommentLengthInput.value = result.minCommentLength ?? 100;
 });
 
 // ── API key ───────────────────────────────────────────────────────────────────
@@ -63,10 +69,15 @@ showPctToggle.addEventListener('change', () => updatePctLabel(showPctToggle.chec
 analyzeCommentsToggle.addEventListener('change', () => updateCommentsLabel(analyzeCommentsToggle.checked));
 
 saveDisplayBtn.addEventListener('click', () => {
-  const colorMode       = document.querySelector('input[name="colorMode"]:checked')?.value || 'sentiment';
-  const showPercentage  = showPctToggle.checked;
-  const analyzeComments = analyzeCommentsToggle.checked;
-  chrome.storage.sync.set({ colorMode, showPercentage, analyzeComments }, () => {
+  const colorMode        = document.querySelector('input[name="colorMode"]:checked')?.value || 'sentiment';
+  const showPercentage   = showPctToggle.checked;
+  const analyzeComments  = analyzeCommentsToggle.checked;
+  const minPostLength    = Math.max(10, parseInt(minPostLengthInput.value, 10)    || 80);
+  const minCommentLength = Math.max(10, parseInt(minCommentLengthInput.value, 10) || 100);
+  // Reflect clamped values back to the inputs
+  minPostLengthInput.value    = minPostLength;
+  minCommentLengthInput.value = minCommentLength;
+  chrome.storage.sync.set({ colorMode, showPercentage, analyzeComments, minPostLength, minCommentLength }, () => {
     showStatus(displayStatusEl, 'Display settings saved!', 'ok');
   });
 });

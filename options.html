@@ -434,6 +434,24 @@
         </div>
       </div>
 
+      <hr class="section-divider">
+
+      <!-- Minimum lengths -->
+      <div class="option-group">
+        <div class="option-label">Minimum text length</div>
+        <div class="option-desc">Posts or comments shorter than these limits are skipped (no API call).</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap">
+          <div>
+            <label for="minPostLength" style="margin-bottom:4px">Posts (characters)</label>
+            <input type="number" id="minPostLength" min="10" max="2000" style="width:90px;font-family:inherit">
+          </div>
+          <div>
+            <label for="minCommentLength" style="margin-bottom:4px">Comments (characters)</label>
+            <input type="number" id="minCommentLength" min="10" max="2000" style="width:90px;font-family:inherit">
+          </div>
+        </div>
+      </div>
+
       <div class="save-row">
         <button class="btn btn-primary" id="saveDisplayBtn" type="button">Save Display Settings</button>
         <span class="status" id="displayStatus"></span>
