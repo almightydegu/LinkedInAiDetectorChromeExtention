@@ -286,7 +286,7 @@ function commentInsertionAnchor(comment) {
 
 const COMMENT_BADGE_CLASS = 'ai-detector-badge--comment';
 
-async function processItem(element, processedAttr, anchorFn, minLength, modClass = '') {
+async function processItem(element, processedAttr, anchorFn, minLength, modClass = '', contentType = 'post') {
   if (element.hasAttribute(processedAttr)) return;
   element.setAttribute(processedAttr, 'true');
 
@@ -313,7 +313,7 @@ async function processItem(element, processedAttr, anchorFn, minLength, modClass
   anchor.insertAdjacentElement('afterend', loading);
 
   try {
-    const result = await sendToBackground(text);
+    const result = await sendToBackground(text, contentType);
     analysisCache.set(key, { ok: true, score: result.score, reason: result.reason });
     loading.replaceWith(stamp(makeBadge('score', result)));
   } catch (err) {
@@ -347,7 +347,7 @@ function badgeFromCached(cached) {
 // pill. Clicking it removes the pill and kicks off normal analysis.
 // If the item is already cached, the result is shown immediately (no pill).
 
-function insertTrigger(element, processedAttr, anchorFn, minLength, modClass = '') {
+function insertTrigger(element, processedAttr, anchorFn, minLength, modClass = '', contentType = 'post') {
   // Idempotent: skip if already showing a trigger pill or a full result
   if (element.hasAttribute(TRIGGER_ATTR) || element.hasAttribute(processedAttr)) return;
   element.setAttribute(TRIGGER_ATTR, 'true');
@@ -374,23 +374,23 @@ function insertTrigger(element, processedAttr, anchorFn, minLength, modClass = '
 
   triggerEl.addEventListener('click', () => {
     triggerEl.remove();
-    processItem(element, processedAttr, anchorFn, minLength, modClass);
+    processItem(element, processedAttr, anchorFn, minLength, modClass, contentType);
   });
 
   anchor.insertAdjacentElement('afterend', stamp(triggerEl));
 }
 
 function processPost(post) {
-  return processItem(post, PROCESSED_ATTR, insertionAnchor, settings.minPostLength);
+  return processItem(post, PROCESSED_ATTR, insertionAnchor, settings.minPostLength, '', 'post');
 }
 
 function processComment(comment) {
-  return processItem(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, settings.minCommentLength, COMMENT_BADGE_CLASS);
+  return processItem(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, settings.minCommentLength, COMMENT_BADGE_CLASS, 'comment');
 }
 
-function sendToBackground(text) {
+function sendToBackground(text, contentType = 'post') {
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ action: 'analyzePost', text }, (response) => {
+    chrome.runtime.sendMessage({ action: 'analyzePost', text, contentType }, (response) => {
       if (chrome.runtime.lastError) {
         return reject(new Error(chrome.runtime.lastError.message));
       }
@@ -422,7 +422,7 @@ function scanAll() {
       if (postMode === 'auto') {
         if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
       } else {
-        insertTrigger(post, PROCESSED_ATTR, insertionAnchor, settings.minPostLength);
+        insertTrigger(post, PROCESSED_ATTR, insertionAnchor, settings.minPostLength, '', 'post');
       }
     });
   }
@@ -432,7 +432,7 @@ function scanAll() {
       if (commentMode === 'auto') {
         if (!comment.hasAttribute(COMMENT_PROCESSED_ATTR)) processComment(comment);
       } else {
-        insertTrigger(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, settings.minCommentLength, COMMENT_BADGE_CLASS);
+        insertTrigger(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, settings.minCommentLength, COMMENT_BADGE_CLASS, 'comment');
       }
     });
   }
@@ -459,7 +459,7 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.19 loaded');
+  console.log('[AI Detector] v1.0.20 loaded');
   chrome.storage.sync.get(['colorMode', 'showPercentage', 'postMode', 'commentMode', 'minPostLength', 'minCommentLength'], (result) => {
     if (result.colorMode !== undefined)        settings.colorMode        = result.colorMode;
     if (result.showPercentage !== undefined)   settings.showPercentage   = result.showPercentage;
