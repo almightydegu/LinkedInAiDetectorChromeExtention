@@ -73,14 +73,37 @@ function buildPrompt(text, contentType = 'post') {
   const label     = isComment ? 'comment' : 'post';
 
   const commentContext = isComment ? `
-IMPORTANT CONTEXT — LinkedIn comments:
-Comments are inherently short, reactive, and conversational. Humans naturally write brief comments like "Great point!", "This resonates with me", or "Totally agree — we saw the same thing at [company]." Short length and simple agreement are NOT AI signals in comments. Many genuine human comments are just 1–3 sentences of reaction or endorsement. Only flag a comment as AI if it reads like a generated response with no authentic voice.
+CRITICAL CONTEXT — LinkedIn comments:
+Comments are inherently short, reactive, and conversational. This is the MOST important context for scoring.
+
+Short comments (under ~200 characters) are OVERWHELMINGLY human-written. AI tools almost never generate very short, casual replies — they produce longer, more elaborate responses. When you see a short comment, your strong default should be a LOW score (5–25) unless there is specific, compelling evidence of AI.
+
+Examples of clearly HUMAN comments that must score BELOW 20:
+- "I have 0 coding experience! Where can I register?"
+- "Really interested in this. I would love to be involved if possible."
+- "Great post! This resonates with me."
+- "Totally agree — we saw the same thing at our company."
+- "Following for the comments"
+- "Love this! 🔥"
+- "Can you share more details?"
+- "This is exactly what I needed to hear today"
+
+These are normal human reactions. Exclamation marks, simple questions, brief enthusiasm, tagging someone by name, expressing interest — these are all human behaviours, NOT AI signals.
+
+AI-generated comments typically look like this (score 70+):
+- Multi-paragraph responses that comprehensively address every point
+- Overly structured with transitions like "Furthermore" and "Additionally"
+- Generic praise that could apply to any post ("What a thoughtful and insightful perspective on this important topic")
+- Suspiciously thorough summaries of the original post's arguments
 
 Watch for these comment-specific human signals:
 - Typos, abbreviations, or casual shorthand (normal in quick replies)
 - Referencing specific details from the original post (shows they actually read it)
 - Adding a personal anecdote or counterpoint, even briefly
 - Conversational tone ("Yeah", "Honestly", "Ha", "100%")
+- Exclamation marks showing genuine enthusiasm
+- Mentioning someone by name
+- Asking a direct question
 - Domain-specific jargon used naturally in context
 ` : '';
 

@@ -459,7 +459,7 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.20 loaded');
+  console.log('[AI Detector] v1.0.21 loaded');
   chrome.storage.sync.get(['colorMode', 'showPercentage', 'postMode', 'commentMode', 'minPostLength', 'minCommentLength'], (result) => {
     if (result.colorMode !== undefined)        settings.colorMode        = result.colorMode;
     if (result.showPercentage !== undefined)   settings.showPercentage   = result.showPercentage;
