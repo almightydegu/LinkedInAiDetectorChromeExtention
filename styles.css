@@ -86,6 +86,25 @@
   border-color: #fecaca;
 }
 
+/* On-demand trigger pill */
+.aid-trigger {
+  cursor: pointer;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.aid-trigger:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.aid-trigger span {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #2563eb;
+  user-select: none;
+}
+
 /* Spinner keyframes */
 @keyframes ai-rotate {
   to { transform: rotate(360deg); }

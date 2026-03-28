@@ -2,6 +2,7 @@
 
 const PROCESSED_ATTR         = 'data-ai-detector-done';
 const COMMENT_PROCESSED_ATTR = 'data-ai-comment-done';
+const TRIGGER_ATTR           = 'data-ai-trigger-shown';
 const BADGE_CLASS            = 'ai-detector-badge';
 const MIN_POST_LENGTH        = 80;
 const MIN_COMMENT_LENGTH     = 100;
@@ -53,7 +54,7 @@ const LOADING_SVG = `
 
 // ── Settings (loaded before any posts are processed) ──────────────────────────
 
-const settings = { colorMode: 'sentiment', showPercentage: true, analyzeComments: false, minPostLength: 80, minCommentLength: 100 };
+const settings = { colorMode: 'sentiment', showPercentage: true, postMode: 'auto', commentMode: 'off', minPostLength: 80, minCommentLength: 100 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -331,6 +332,44 @@ function badgeFromCached(cached) {
   return makeBadge('score', { score: cached.score, reason: cached.reason });
 }
 
+// ── On-demand trigger ─────────────────────────────────────────────────────────
+// In 'manual' mode, instead of auto-analysing, we inject a "🔍 Check for AI"
+// pill. Clicking it removes the pill and kicks off normal analysis.
+// If the item is already cached, the result is shown immediately (no pill).
+
+function insertTrigger(element, processedAttr, anchorFn, minLength, modClass = '') {
+  // Idempotent: skip if already showing a trigger pill or a full result
+  if (element.hasAttribute(TRIGGER_ATTR) || element.hasAttribute(processedAttr)) return;
+  element.setAttribute(TRIGGER_ATTR, 'true');
+
+  const text = extractText(element);
+  if (!text || text.length < minLength) return;
+
+  const key    = textKey(text);
+  const anchor = anchorFn(element);
+
+  function stamp(el) { if (modClass) el.classList.add(modClass); return el; }
+
+  // Already cached — show result directly, no pill needed
+  if (analysisCache.has(key)) {
+    element.setAttribute(processedAttr, 'true');
+    anchor.insertAdjacentElement('afterend', stamp(badgeFromCached(analysisCache.get(key))));
+    return;
+  }
+
+  // Insert the trigger pill
+  const triggerEl = document.createElement('div');
+  triggerEl.className = BADGE_CLASS;
+  triggerEl.innerHTML = `<div class="aid-inner aid-trigger"><span>🔍 Check for AI</span></div>`;
+
+  triggerEl.addEventListener('click', () => {
+    triggerEl.remove();
+    processItem(element, processedAttr, anchorFn, minLength, modClass);
+  });
+
+  anchor.insertAdjacentElement('afterend', stamp(triggerEl));
+}
+
 function processPost(post) {
   return processItem(post, PROCESSED_ATTR, insertionAnchor, settings.minPostLength);
 }
@@ -366,12 +405,25 @@ let mutationDebounceTimer = null;
 let lateDebounceTimer     = null;
 
 function scanAll() {
-  getFeedPosts().forEach(post => {
-    if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
-  });
-  if (settings.analyzeComments) {
+  const { postMode, commentMode } = settings;
+
+  if (postMode !== 'off') {
+    getFeedPosts().forEach(post => {
+      if (postMode === 'auto') {
+        if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
+      } else {
+        insertTrigger(post, PROCESSED_ATTR, insertionAnchor, settings.minPostLength);
+      }
+    });
+  }
+
+  if (commentMode !== 'off') {
     getComments().forEach(comment => {
-      if (!comment.hasAttribute(COMMENT_PROCESSED_ATTR)) processComment(comment);
+      if (commentMode === 'auto') {
+        if (!comment.hasAttribute(COMMENT_PROCESSED_ATTR)) processComment(comment);
+      } else {
+        insertTrigger(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, settings.minCommentLength, COMMENT_BADGE_CLASS);
+      }
     });
   }
 }
@@ -397,11 +449,12 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.16 loaded');
-  chrome.storage.sync.get(['colorMode', 'showPercentage', 'analyzeComments', 'minPostLength', 'minCommentLength'], (result) => {
+  console.log('[AI Detector] v1.0.17 loaded');
+  chrome.storage.sync.get(['colorMode', 'showPercentage', 'postMode', 'commentMode', 'minPostLength', 'minCommentLength'], (result) => {
     if (result.colorMode !== undefined)        settings.colorMode        = result.colorMode;
     if (result.showPercentage !== undefined)   settings.showPercentage   = result.showPercentage;
-    if (result.analyzeComments !== undefined)  settings.analyzeComments  = result.analyzeComments;
+    if (result.postMode !== undefined)         settings.postMode         = result.postMode;
+    if (result.commentMode !== undefined)      settings.commentMode      = result.commentMode;
     if (result.minPostLength !== undefined)    settings.minPostLength    = result.minPostLength;
     if (result.minCommentLength !== undefined) settings.minCommentLength = result.minCommentLength;
 

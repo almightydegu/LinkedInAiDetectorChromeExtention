@@ -421,16 +421,63 @@
 
       <hr class="section-divider">
 
-      <!-- Analyse comments -->
+      <!-- Posts mode -->
       <div class="option-group">
-        <div class="option-label">Analyse comments</div>
-        <div class="option-desc">Score comments on posts as well as the posts themselves. Off by default — each comment uses one API call, the same cost as a post.</div>
-        <div class="toggle-row">
-          <label class="toggle">
-            <input type="checkbox" id="analyzeComments">
-            <span class="toggle-track"></span>
+        <div class="option-label">Posts analysis mode</div>
+        <div class="option-desc">Controls how posts are analysed for AI content.</div>
+        <div class="radio-list">
+          <label class="radio-item">
+            <input type="radio" name="postMode" value="auto" id="postModeAuto">
+            <span class="radio-item-text">
+              Auto
+              <small>Posts are analysed automatically as you scroll.</small>
+            </span>
           </label>
-          <span class="toggle-label" id="commentsToggleLabel">Comment analysis off</span>
+          <label class="radio-item">
+            <input type="radio" name="postMode" value="manual" id="postModeManual">
+            <span class="radio-item-text">
+              On-demand
+              <small>A "🔍 Check for AI" pill appears on each post — click it to analyse.</small>
+            </span>
+          </label>
+          <label class="radio-item">
+            <input type="radio" name="postMode" value="off" id="postModeOff">
+            <span class="radio-item-text">
+              Off
+              <small>Posts are not analysed.</small>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <hr class="section-divider">
+
+      <!-- Comments mode -->
+      <div class="option-group">
+        <div class="option-label">Comments analysis mode</div>
+        <div class="option-desc">Controls how comments are analysed. Each comment uses one API call, the same cost as a post.</div>
+        <div class="radio-list">
+          <label class="radio-item">
+            <input type="radio" name="commentMode" value="auto" id="commentModeAuto">
+            <span class="radio-item-text">
+              Auto
+              <small>Comments are analysed automatically when loaded.</small>
+            </span>
+          </label>
+          <label class="radio-item">
+            <input type="radio" name="commentMode" value="manual" id="commentModeManual">
+            <span class="radio-item-text">
+              On-demand
+              <small>A "🔍 Check for AI" pill appears on each comment — click it to analyse.</small>
+            </span>
+          </label>
+          <label class="radio-item">
+            <input type="radio" name="commentMode" value="off" id="commentModeOff">
+            <span class="radio-item-text">
+              Off
+              <small>Comments are not analysed (default).</small>
+            </span>
+          </label>
         </div>
       </div>
 

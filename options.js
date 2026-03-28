@@ -7,8 +7,6 @@ const statusEl         = document.getElementById('status');
 
 const showPctToggle         = document.getElementById('showPercentage');
 const pctToggleLabel        = document.getElementById('pctToggleLabel');
-const analyzeCommentsToggle = document.getElementById('analyzeComments');
-const commentsToggleLabel   = document.getElementById('commentsToggleLabel');
 const minPostLengthInput    = document.getElementById('minPostLength');
 const minCommentLengthInput = document.getElementById('minCommentLength');
 const saveDisplayBtn        = document.getElementById('saveDisplayBtn');
@@ -16,7 +14,7 @@ const displayStatusEl       = document.getElementById('displayStatus');
 
 // ── Load all settings in one batched read ─────────────────────────────────────
 
-chrome.storage.sync.get(['claudeApiKey', 'colorMode', 'showPercentage', 'analyzeComments', 'minPostLength', 'minCommentLength'], (result) => {
+chrome.storage.sync.get(['claudeApiKey', 'colorMode', 'showPercentage', 'postMode', 'commentMode', 'minPostLength', 'minCommentLength'], (result) => {
   // API key
   if (result.claudeApiKey) apiKeyInput.value = result.claudeApiKey;
 
@@ -30,10 +28,15 @@ chrome.storage.sync.get(['claudeApiKey', 'colorMode', 'showPercentage', 'analyze
   showPctToggle.checked = showPct;
   updatePctLabel(showPct);
 
-  // Analyse comments — default to false
-  const analyzeComments = result.analyzeComments !== undefined ? result.analyzeComments : false;
-  analyzeCommentsToggle.checked = analyzeComments;
-  updateCommentsLabel(analyzeComments);
+  // Posts mode — default to 'auto'
+  const postMode = result.postMode || 'auto';
+  const postModeRadio = document.querySelector(`input[name="postMode"][value="${postMode}"]`);
+  if (postModeRadio) postModeRadio.checked = true;
+
+  // Comments mode — default to 'off'
+  const commentMode = result.commentMode || 'off';
+  const commentModeRadio = document.querySelector(`input[name="commentMode"][value="${commentMode}"]`);
+  if (commentModeRadio) commentModeRadio.checked = true;
 
   // Min lengths — defaults match content.js constants
   minPostLengthInput.value    = result.minPostLength    ?? 80;
@@ -66,18 +69,18 @@ saveBtn.addEventListener('click', () => {
 // ── Display settings ──────────────────────────────────────────────────────────
 
 showPctToggle.addEventListener('change', () => updatePctLabel(showPctToggle.checked));
-analyzeCommentsToggle.addEventListener('change', () => updateCommentsLabel(analyzeCommentsToggle.checked));
 
 saveDisplayBtn.addEventListener('click', () => {
   const colorMode        = document.querySelector('input[name="colorMode"]:checked')?.value || 'sentiment';
   const showPercentage   = showPctToggle.checked;
-  const analyzeComments  = analyzeCommentsToggle.checked;
+  const postMode         = document.querySelector('input[name="postMode"]:checked')?.value || 'auto';
+  const commentMode      = document.querySelector('input[name="commentMode"]:checked')?.value || 'off';
   const minPostLength    = Math.max(10, parseInt(minPostLengthInput.value, 10)    || 80);
   const minCommentLength = Math.max(10, parseInt(minCommentLengthInput.value, 10) || 100);
   // Reflect clamped values back to the inputs
   minPostLengthInput.value    = minPostLength;
   minCommentLengthInput.value = minCommentLength;
-  chrome.storage.sync.set({ colorMode, showPercentage, analyzeComments, minPostLength, minCommentLength }, () => {
+  chrome.storage.sync.set({ colorMode, showPercentage, postMode, commentMode, minPostLength, minCommentLength }, () => {
     showStatus(displayStatusEl, 'Display settings saved!', 'ok');
   });
 });
@@ -86,10 +89,6 @@ saveDisplayBtn.addEventListener('click', () => {
 
 function updatePctLabel(checked) {
   pctToggleLabel.textContent = checked ? 'Show percentage' : 'Hide percentage';
-}
-
-function updateCommentsLabel(checked) {
-  commentsToggleLabel.textContent = checked ? 'Comment analysis on' : 'Comment analysis off';
 }
 
 function showStatus(el, msg, type) {
