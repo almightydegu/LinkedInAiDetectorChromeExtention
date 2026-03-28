@@ -5,6 +5,17 @@
   padding: 0 16px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
   line-height: 1;
+  /* Render above LinkedIn's vertical thread-line pseudo-elements */
+  position: relative;
+  z-index: 2;
+  background: #fff; /* solid background so the thread line doesn't show through */
+}
+
+/* Push comment badges past the profile picture to align with the comment text.
+   LinkedIn comment profile pics are ~40px + ~12px gap = 52px indent. */
+.ai-detector-badge--comment {
+  padding: 0;
+  margin-left: 52px;
 }
 
 .aid-inner {
@@ -73,6 +84,25 @@
 .aid-err {
   background: #fef2f2;
   border-color: #fecaca;
+}
+
+/* On-demand trigger pill */
+.aid-trigger {
+  cursor: pointer;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.aid-trigger:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.aid-trigger span {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #2563eb;
+  user-select: none;
 }
 
 /* Spinner keyframes */

@@ -1,12 +1,29 @@
 // content.js — Injected into LinkedIn pages
 
-const PROCESSED_ATTR   = 'data-ai-detector-done';
-const BADGE_CLASS      = 'ai-detector-badge';
-const MIN_TEXT_LENGTH  = 80;
+const PROCESSED_ATTR         = 'data-ai-detector-done';
+const COMMENT_PROCESSED_ATTR = 'data-ai-comment-done';
+const TRIGGER_ATTR           = 'data-ai-trigger-shown';
+const BADGE_CLASS            = 'ai-detector-badge';
+const MIN_POST_LENGTH        = 80;
+const MIN_COMMENT_LENGTH     = 100;
+
+// ── Analysis cache ────────────────────────────────────────────────────────────
+// LinkedIn re-renders its post/comment containers, stripping any injected DOM
+// attributes. The cache lets us re-inject badges instantly from a stored result
+// without making a repeat API call, and prevents duplicate in-flight requests.
+
+const analysisCache = new Map(); // textKey → cached result object
+const pendingKeys   = new Set(); // textKeys currently awaiting an API response
+
+function textKey(text) {
+  // First 100 chars + total length is a fast, collision-resistant key
+  return `${text.length}:${text.slice(0, 100)}`;
+}
 
 // Selector for the per-post options button — the only stable DOM anchor
 // LinkedIn exposes after switching to hashed class names.
-const MENU_BTN_SELECTOR = '[aria-label*="control menu for post"], [aria-label*="menu for post"]';
+const MENU_BTN_SELECTOR         = '[aria-label*="control menu for post"], [aria-label*="menu for post"]';
+const COMMENT_MENU_BTN_SELECTOR = '[aria-label*="View more options for"][aria-label*="comment"]';
 
 // ── SVG Icons ────────────────────────────────────────────────────────────────
 
@@ -37,7 +54,7 @@ const LOADING_SVG = `
 
 // ── Settings (loaded before any posts are processed) ──────────────────────────
 
-const settings = { colorMode: 'sentiment', showPercentage: true };
+const settings = { colorMode: 'sentiment', showPercentage: true, postMode: 'auto', commentMode: 'off', minPostLength: 80, minCommentLength: 100 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +63,7 @@ function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
@@ -149,6 +167,35 @@ function getFeedPosts() {
   );
 }
 
+// ── Comment detection ─────────────────────────────────────────────────────────
+// [data-testid*="commentList"] is the comment SECTION container. It can be
+// nested: top-level comments live in the post's commentList, and replies to
+// those comments live in a NESTED commentList inside each comment's DOM node.
+// We iterate ALL section containers (at every depth) so both main comments
+// and indented reply threads get badges.
+
+function getComments() {
+  const sections = document.querySelectorAll('[data-testid*="commentList"]');
+  const seen     = new Set();
+  const results  = [];
+
+  sections.forEach(section => {
+    Array.from(section.children).forEach(child => {
+      if (seen.has(child)) return;
+      // Skip nested commentList sections themselves — they are iterated
+      // by the outer forEach, so only take non-section children here.
+      if (child.getAttribute('data-testid')?.includes('commentList')) return;
+      // A real comment has meaningful text content (spacers/buttons don't)
+      if (child.textContent.trim().length > 20) {
+        seen.add(child);
+        results.push(child);
+      }
+    });
+  });
+
+  return results;
+}
+
 // ── Post text extraction ──────────────────────────────────────────────────────
 // Class names are hashed so we find the element whose direct text nodes
 // contain the most content — that's reliably the post body.
@@ -163,12 +210,16 @@ function extractText(post) {
       .trim();
     if (directText.length > bestText.length) bestText = directText;
   });
-  return bestText.length >= MIN_TEXT_LENGTH ? bestText : null;
+  // Return null only for noise-level text (buttons, spacers).
+  // The caller (processItem / insertTrigger) enforces the user-configured min length.
+  return bestText.length >= 20 ? bestText : null;
 }
 
-// ── Insertion point ───────────────────────────────────────────────────────────
-// Walk 3 levels up from the options button to clear the author header row,
-// then insert the badge as the next sibling of that ancestor.
+// ── Insertion points ──────────────────────────────────────────────────────────
+// Posts: walk 3 levels up from the options button to clear the author header,
+//        insert after that ancestor element.
+// Comments: the first direct child is always the author header block —
+//           insert after it so the badge sits between author info and text.
 
 function insertionAnchor(post) {
   const btn = post.querySelector(MENU_BTN_SELECTOR);
@@ -182,34 +233,164 @@ function insertionAnchor(post) {
   return el;
 }
 
+function commentInsertionAnchor(comment) {
+  // Step 1: find the "Reply" span in THIS comment's own action bar.
+  // Skip any span inside a nested commentList (reply thread inside this comment).
+  let replyEl = null;
+  comment.querySelectorAll('button, span[role="button"], span').forEach(el => {
+    if (replyEl || el.textContent.trim() !== 'Reply') return;
+    let cur = el.parentElement;
+    while (cur && cur !== comment) {
+      if (cur.getAttribute('data-testid')?.includes('commentList')) return;
+      cur = cur.parentElement;
+    }
+    replyEl = el;
+  });
+
+  if (replyEl) {
+    // Step 2: walk UP from replyEl toward comment. Track the deepest container
+    // that holds the comment body text (> 80 chars). That's the "content div"
+    // (the right-side panel that sits after the profile picture in the flex/grid
+    // layout). Inserting the badge as the last child of this container keeps
+    // the badge inside the content area, naturally aligned with the text.
+    let el = replyEl;
+    let contentDiv = null;
+    while (el.parentElement && el.parentElement !== comment) {
+      el = el.parentElement;
+      if (el.textContent.trim().length > 80) contentDiv = el;
+    }
+
+    if (contentDiv) {
+      // Return the last non-commentList child of contentDiv.
+      // 'afterend' on that child appends the badge inside contentDiv.
+      let last = contentDiv.lastElementChild;
+      while (last && last.getAttribute('data-testid')?.includes('commentList')) {
+        last = last.previousElementSibling;
+      }
+      return last ?? contentDiv;
+    }
+  }
+
+  // Fallback: last non-commentList direct child of comment
+  let last = comment.lastElementChild;
+  while (last && last.getAttribute('data-testid')?.includes('commentList')) {
+    last = last.previousElementSibling;
+  }
+  return last ?? comment;
+}
+
 // ── Core processing ───────────────────────────────────────────────────────────
+// processItem handles both posts and comments. The analysisCache means:
+//   - Re-rendered elements get their badge re-injected instantly from cache
+//   - Two elements with identical text don't trigger duplicate API calls
 
-async function processPost(post) {
-  if (post.hasAttribute(PROCESSED_ATTR)) return;
-  post.setAttribute(PROCESSED_ATTR, 'true');
+const COMMENT_BADGE_CLASS = 'ai-detector-badge--comment';
 
-  const text = extractText(post);
-  if (!text) return;
+async function processItem(element, processedAttr, anchorFn, minLength, modClass = '', contentType = 'post') {
+  if (element.hasAttribute(processedAttr)) return;
+  element.setAttribute(processedAttr, 'true');
 
-  const anchor  = insertionAnchor(post);
-  const loading = makeBadge('loading');
+  const text = extractText(element);
+  if (!text || text.length < minLength) return;
+
+  const key    = textKey(text);
+  const anchor = anchorFn(element);
+
+  // Stamp the optional modifier class onto a badge element
+  function stamp(el) { if (modClass) el.classList.add(modClass); return el; }
+
+  // Re-render hit: inject from cache immediately, no API call needed
+  if (analysisCache.has(key)) {
+    anchor.insertAdjacentElement('afterend', stamp(badgeFromCached(analysisCache.get(key))));
+    return;
+  }
+
+  // Duplicate in-flight: skip to avoid a second identical API request
+  if (pendingKeys.has(key)) return;
+  pendingKeys.add(key);
+
+  const loading = stamp(makeBadge('loading'));
   anchor.insertAdjacentElement('afterend', loading);
 
   try {
-    const result = await sendToBackground(text);
-    loading.replaceWith(makeBadge('score', result));
+    const result = await sendToBackground(text, contentType);
+    analysisCache.set(key, { ok: true, score: result.score, reason: result.reason });
+    loading.replaceWith(stamp(makeBadge('score', result)));
   } catch (err) {
-    loading.replaceWith(
-      err.message === 'NO_API_KEY'
-        ? makeBadge('no-key')
-        : makeBadge('error', { message: err.message })
-    );
+    // Only cache permanent errors (missing key). Transient failures (network,
+    // rate-limit) are NOT cached so the next scan can retry the request.
+    if (err.message === 'NO_API_KEY') {
+      analysisCache.set(key, { ok: false, message: err.message });
+    } else {
+      // Allow retry on next scan by clearing the processed marker
+      element.removeAttribute(processedAttr);
+    }
+    loading.replaceWith(stamp(
+      err.message === 'NO_API_KEY' ? makeBadge('no-key') : makeBadge('error', { message: err.message })
+    ));
+  } finally {
+    pendingKeys.delete(key);
   }
 }
 
-function sendToBackground(text) {
+function badgeFromCached(cached) {
+  if (!cached.ok) {
+    return cached.message === 'NO_API_KEY'
+      ? makeBadge('no-key')
+      : makeBadge('error', { message: cached.message });
+  }
+  return makeBadge('score', { score: cached.score, reason: cached.reason });
+}
+
+// ── On-demand trigger ─────────────────────────────────────────────────────────
+// In 'manual' mode, instead of auto-analysing, we inject a "🔍 Check for AI"
+// pill. Clicking it removes the pill and kicks off normal analysis.
+// If the item is already cached, the result is shown immediately (no pill).
+
+function insertTrigger(element, processedAttr, anchorFn, minLength, modClass = '', contentType = 'post') {
+  // Idempotent: skip if already showing a trigger pill or a full result
+  if (element.hasAttribute(TRIGGER_ATTR) || element.hasAttribute(processedAttr)) return;
+  element.setAttribute(TRIGGER_ATTR, 'true');
+
+  const text = extractText(element);
+  if (!text) return;  // no meaningful text at all — skip
+
+  const key    = textKey(text);
+  const anchor = anchorFn(element);
+
+  function stamp(el) { if (modClass) el.classList.add(modClass); return el; }
+
+  // Already cached — show result directly, no pill needed
+  if (analysisCache.has(key)) {
+    element.setAttribute(processedAttr, 'true');
+    anchor.insertAdjacentElement('afterend', stamp(badgeFromCached(analysisCache.get(key))));
+    return;
+  }
+
+  // Insert the trigger pill
+  const triggerEl = document.createElement('div');
+  triggerEl.className = BADGE_CLASS;
+  triggerEl.innerHTML = `<div class="aid-inner aid-trigger"><span>🔍 Check for AI</span></div>`;
+
+  triggerEl.addEventListener('click', () => {
+    triggerEl.remove();
+    processItem(element, processedAttr, anchorFn, minLength, modClass, contentType);
+  });
+
+  anchor.insertAdjacentElement('afterend', stamp(triggerEl));
+}
+
+function processPost(post) {
+  return processItem(post, PROCESSED_ATTR, insertionAnchor, settings.minPostLength, '', 'post');
+}
+
+function processComment(comment) {
+  return processItem(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, settings.minCommentLength, COMMENT_BADGE_CLASS, 'comment');
+}
+
+function sendToBackground(text, contentType = 'post') {
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ action: 'analyzePost', text }, (response) => {
+    chrome.runtime.sendMessage({ action: 'analyzePost', text, contentType }, (response) => {
       if (chrome.runtime.lastError) {
         return reject(new Error(chrome.runtime.lastError.message));
       }
@@ -231,14 +412,46 @@ function sendToBackground(text) {
 // extension itself inserts badges).
 
 let mutationDebounceTimer = null;
+let lateDebounceTimer     = null;
+
+function scanAll() {
+  const { postMode, commentMode } = settings;
+
+  if (postMode !== 'off') {
+    getFeedPosts().forEach(post => {
+      if (postMode === 'auto') {
+        if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
+      } else {
+        insertTrigger(post, PROCESSED_ATTR, insertionAnchor, settings.minPostLength, '', 'post');
+      }
+    });
+  }
+
+  if (commentMode !== 'off') {
+    getComments().forEach(comment => {
+      if (commentMode === 'auto') {
+        if (!comment.hasAttribute(COMMENT_PROCESSED_ATTR)) processComment(comment);
+      } else {
+        insertTrigger(comment, COMMENT_PROCESSED_ATTR, commentInsertionAnchor, settings.minCommentLength, COMMENT_BADGE_CLASS, 'comment');
+      }
+    });
+  }
+}
 
 const domObserver = new MutationObserver(() => {
+  // Fast scan: runs 150 ms after the last DOM mutation
   clearTimeout(mutationDebounceTimer);
-  mutationDebounceTimer = setTimeout(() => {
-    getFeedPosts().forEach(post => {
-      if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
-    });
-  }, 150);
+  mutationDebounceTimer = setTimeout(scanAll, 150);
+
+  // Late scan: runs once, ~800 ms after the first mutation in a burst.
+  // Catches comments whose Like|Reply bar was not yet in the DOM when the
+  // fast scan fired (e.g. "Load more comments" with slow network/render).
+  if (!lateDebounceTimer) {
+    lateDebounceTimer = setTimeout(() => {
+      lateDebounceTimer = null;
+      scanAll();
+    }, 800);
+  }
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -246,14 +459,17 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.6 loaded');
-  chrome.storage.sync.get(['colorMode', 'showPercentage'], (result) => {
-    if (result.colorMode !== undefined)      settings.colorMode      = result.colorMode;
-    if (result.showPercentage !== undefined) settings.showPercentage = result.showPercentage;
+  console.log('[AI Detector] v1.0.21 loaded');
+  chrome.storage.sync.get(['colorMode', 'showPercentage', 'postMode', 'commentMode', 'minPostLength', 'minCommentLength'], (result) => {
+    if (result.colorMode !== undefined)        settings.colorMode        = result.colorMode;
+    if (result.showPercentage !== undefined)   settings.showPercentage   = result.showPercentage;
+    const validModes = ['auto', 'manual', 'off'];
+    if (validModes.includes(result.postMode))    settings.postMode    = result.postMode;
+    if (validModes.includes(result.commentMode)) settings.commentMode = result.commentMode;
+    if (result.minPostLength !== undefined)    settings.minPostLength    = result.minPostLength;
+    if (result.minCommentLength !== undefined) settings.minCommentLength = result.minCommentLength;
 
-    getFeedPosts().forEach(post => {
-      if (!post.hasAttribute(PROCESSED_ATTR)) processPost(post);
-    });
+    scanAll();
 
     // Start observing only after settings are applied
     domObserver.observe(document.body, { childList: true, subtree: true });
