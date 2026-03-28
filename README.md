@@ -99,7 +99,7 @@ As posts scroll into view, a loading spinner will appear briefly next to the aut
 
 ### Why Claude Haiku?
 
-Haiku is Anthropic's fastest and cheapest model. It is more than capable of detecting AI writing patterns and keeps the cost per post at roughly **$0.0001** (one hundredth of a cent). A full day of browsing LinkedIn is unlikely to cost more than a few cents.
+Haiku 4.5 is Anthropic's fastest and cheapest model. It is more than capable of detecting AI writing patterns and keeps the cost per analysis at roughly **$0.001** (one tenth of a cent). Analysing 100 posts costs about 10 cents.
 
 ---
 
@@ -167,24 +167,39 @@ small additional file.
 
 Before submitting to any store, generate a clean zip from the project root.
 Do **not** include `.git`, `setup.js`, or `node_modules` (there are none, but
-good habit):
+good habit).
 
-```bash
+> **Requires PowerShell** (built into Windows; available on macOS/Linux via
+> [PowerShell 7](https://github.com/PowerShell/PowerShell)).
+
+```powershell
 node setup.js   # regenerate icons if needed
 
-cd ..
-zip -r linkedin-ai-detector.zip LinkedInAiDetectorChromeExtention \
-  --exclude "*.git*" \
-  --exclude "*/setup.js" \
-  --exclude "*/.DS_Store" \
-  --exclude "*/Thumbs.db"
+# Run from inside the extension folder so manifest.json is at the zip root
+Push-Location LinkedInAiDetectorChromeExtention
+
+$files = Get-ChildItem -Recurse -File |
+  Where-Object {
+    $_.FullName -notmatch '[\\/]\.git[\\/]' -and
+    $_.Name -ne 'setup.js' -and
+    $_.Name -ne '.DS_Store' -and
+    $_.Name -ne 'Thumbs.db' -and
+    $_.Name -ne 'package-lock.json' -and
+    $_.Name -ne 'README.md'
+  }
+
+Compress-Archive -Path $files.FullName -DestinationPath "..\linkedin-ai-detector.zip" -Force
+
+Pop-Location
 ```
 
-The zip should contain `manifest.json` at its root level when unzipped inside
-the project folder. Verify with:
+The zip must contain `manifest.json` at its root level (not inside a subfolder).
+Verify with:
 
-```bash
-unzip -l linkedin-ai-detector.zip | head -20
+```powershell
+Expand-Archive -Path linkedin-ai-detector.zip -DestinationPath _verify -Force
+Get-ChildItem _verify | Select-Object Name
+Remove-Item _verify -Recurse
 ```
 
 ---
@@ -321,13 +336,20 @@ The full `manifest.json` will look like:
 }
 ```
 
-**Step 3 — Create a Firefox-specific zip**
+**Step 3 — Create a Firefox-specific zip** (requires PowerShell)
 
-```bash
-cd ..
-zip -r linkedin-ai-detector-firefox.zip LinkedInAiDetectorChromeExtention \
-  --exclude "*.git*" \
-  --exclude "*/setup.js"
+```powershell
+Push-Location LinkedInAiDetectorChromeExtention
+
+$files = Get-ChildItem -Recurse -File |
+  Where-Object {
+    $_.FullName -notmatch '[\\/]\.git[\\/]' -and
+    $_.Name -ne 'setup.js'
+  }
+
+Compress-Archive -Path $files.FullName -DestinationPath "..\linkedin-ai-detector-firefox.zip" -Force
+
+Pop-Location
 ```
 
 **Step 4 — Create a source code zip (required by Mozilla)**
@@ -336,8 +358,8 @@ Mozilla requires you to submit your source code separately so reviewers can
 verify the build. Since this extension has no build step the source zip is
 identical to the extension zip:
 
-```bash
-cp linkedin-ai-detector-firefox.zip linkedin-ai-detector-firefox-source.zip
+```powershell
+Copy-Item linkedin-ai-detector-firefox.zip linkedin-ai-detector-firefox-source.zip
 ```
 
 **Step 5 — Submit**
@@ -366,7 +388,7 @@ approval, open an issue — a Firefox-specific fetch workaround can be added.
 When you push code changes:
 
 1. Bump the version number in `manifest.json` (e.g. `1.0.5` → `1.0.6`)
-2. Regenerate the zip: `zip -r linkedin-ai-detector.zip ...`
+2. Regenerate the zip using the PowerShell commands above
 3. **Chrome:** Developer Console → your extension → **Package** tab → Upload new package
 4. **Edge:** Partner Dashboard → your extension → **Update** → upload new zip
 5. **Firefox:** Add-on Developer Hub → your extension → **Upload New Version**
