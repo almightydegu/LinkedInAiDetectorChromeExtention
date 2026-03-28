@@ -63,6 +63,7 @@ function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
@@ -209,7 +210,9 @@ function extractText(post) {
       .trim();
     if (directText.length > bestText.length) bestText = directText;
   });
-  return bestText.length >= MIN_POST_LENGTH ? bestText : null;
+  // Return null only for noise-level text (buttons, spacers).
+  // The caller (processItem / insertTrigger) enforces the user-configured min length.
+  return bestText.length >= 20 ? bestText : null;
 }
 
 // ── Insertion points ──────────────────────────────────────────────────────────
@@ -314,7 +317,14 @@ async function processItem(element, processedAttr, anchorFn, minLength, modClass
     analysisCache.set(key, { ok: true, score: result.score, reason: result.reason });
     loading.replaceWith(stamp(makeBadge('score', result)));
   } catch (err) {
-    analysisCache.set(key, { ok: false, message: err.message });
+    // Only cache permanent errors (missing key). Transient failures (network,
+    // rate-limit) are NOT cached so the next scan can retry the request.
+    if (err.message === 'NO_API_KEY') {
+      analysisCache.set(key, { ok: false, message: err.message });
+    } else {
+      // Allow retry on next scan by clearing the processed marker
+      element.removeAttribute(processedAttr);
+    }
     loading.replaceWith(stamp(
       err.message === 'NO_API_KEY' ? makeBadge('no-key') : makeBadge('error', { message: err.message })
     ));
@@ -343,7 +353,7 @@ function insertTrigger(element, processedAttr, anchorFn, minLength, modClass = '
   element.setAttribute(TRIGGER_ATTR, 'true');
 
   const text = extractText(element);
-  if (!text || text.length < minLength) return;
+  if (!text) return;  // no meaningful text at all — skip
 
   const key    = textKey(text);
   const anchor = anchorFn(element);
@@ -449,12 +459,13 @@ const domObserver = new MutationObserver(() => {
 // renders with the correct colour mode and percentage preference.
 
 function init() {
-  console.log('[AI Detector] v1.0.17 loaded');
+  console.log('[AI Detector] v1.0.18 loaded');
   chrome.storage.sync.get(['colorMode', 'showPercentage', 'postMode', 'commentMode', 'minPostLength', 'minCommentLength'], (result) => {
     if (result.colorMode !== undefined)        settings.colorMode        = result.colorMode;
     if (result.showPercentage !== undefined)   settings.showPercentage   = result.showPercentage;
-    if (result.postMode !== undefined)         settings.postMode         = result.postMode;
-    if (result.commentMode !== undefined)      settings.commentMode      = result.commentMode;
+    const validModes = ['auto', 'manual', 'off'];
+    if (validModes.includes(result.postMode))    settings.postMode    = result.postMode;
+    if (validModes.includes(result.commentMode)) settings.commentMode = result.commentMode;
     if (result.minPostLength !== undefined)    settings.minPostLength    = result.minPostLength;
     if (result.minCommentLength !== undefined) settings.minCommentLength = result.minCommentLength;
 
