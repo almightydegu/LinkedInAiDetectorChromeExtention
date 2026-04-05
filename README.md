@@ -171,26 +171,39 @@ good habit).
 
 > **Requires PowerShell** (built into Windows; available on macOS/Linux via
 > [PowerShell 7](https://github.com/PowerShell/PowerShell)).
+>
+> **Important:** Run this from the **parent folder** containing `LinkedInAiDetectorChromeExtention`,
+> not from inside the extension folder itself.
 
 ```powershell
-node setup.js   # regenerate icons if needed
+$source = "LinkedInAiDetectorChromeExtention"
+$temp   = "linkedin-ai-detector-temp"
+$dest   = "linkedin-ai-detector.zip"
 
-# Run from inside the extension folder so manifest.json is at the zip root
-Push-Location LinkedInAiDetectorChromeExtention
+# Clean up any previous run
+Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item $dest -Force -ErrorAction SilentlyContinue
 
-$files = Get-ChildItem -Recurse -File |
-  Where-Object {
-    $_.FullName -notmatch '[\\/]\.git[\\/]' -and
-    $_.Name -ne 'setup.js' -and
-    $_.Name -ne '.DS_Store' -and
-    $_.Name -ne 'Thumbs.db' -and
-    $_.Name -ne 'package-lock.json' -and
-    $_.Name -ne 'README.md'
-  }
+# Copy the whole folder to a temp location
+Copy-Item $source $temp -Recurse
 
-Compress-Archive -Path $files.FullName -DestinationPath "..\linkedin-ai-detector.zip" -Force
+# Remove files that shouldn't be in the zip
+Remove-Item "$temp\.git"              -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "$temp\setup.js"          -Force -ErrorAction SilentlyContinue
+Remove-Item "$temp\.DS_Store"         -Force -ErrorAction SilentlyContinue
+Remove-Item "$temp\Thumbs.db"         -Force -ErrorAction SilentlyContinue
+Remove-Item "$temp\package-lock.json" -Force -ErrorAction SilentlyContinue
+Remove-Item "$temp\README.md"         -Force -ErrorAction SilentlyContinue
 
+# Zip from INSIDE the temp folder so all paths are relative to the zip root
+Push-Location $temp
+Compress-Archive -Path * -DestinationPath "..\$dest" -Force
 Pop-Location
+
+# Clean up temp folder
+Remove-Item $temp -Recurse -Force
+
+Write-Host "Done — $dest is ready to upload"
 ```
 
 The zip must contain `manifest.json` at its root level (not inside a subfolder).
@@ -336,20 +349,27 @@ The full `manifest.json` will look like:
 }
 ```
 
-**Step 3 — Create a Firefox-specific zip** (requires PowerShell)
+**Step 3 — Create a Firefox-specific zip** (requires PowerShell, run from parent folder)
 
 ```powershell
-Push-Location LinkedInAiDetectorChromeExtention
+$source = "LinkedInAiDetectorChromeExtention"
+$temp   = "linkedin-ai-detector-firefox-temp"
+$dest   = "linkedin-ai-detector-firefox.zip"
 
-$files = Get-ChildItem -Recurse -File |
-  Where-Object {
-    $_.FullName -notmatch '[\\/]\.git[\\/]' -and
-    $_.Name -ne 'setup.js'
-  }
+Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item $dest -Force -ErrorAction SilentlyContinue
 
-Compress-Archive -Path $files.FullName -DestinationPath "..\linkedin-ai-detector-firefox.zip" -Force
+Copy-Item $source $temp -Recurse
 
+Remove-Item "$temp\.git"  -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "$temp\setup.js" -Force -ErrorAction SilentlyContinue
+
+Push-Location $temp
+Compress-Archive -Path * -DestinationPath "..\$dest" -Force
 Pop-Location
+
+Remove-Item $temp -Recurse -Force
+Write-Host "Done — $dest is ready to upload"
 ```
 
 **Step 4 — Create a source code zip (required by Mozilla)**
